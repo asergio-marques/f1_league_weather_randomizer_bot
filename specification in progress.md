@@ -90,7 +90,7 @@ The bot shall post the following message "Weather radar information for @<Divisi
 A 1000-entry map is to be filled with these three slots for a randomized drawing.
 
 The number of slots taken up by each of the three shall be calculated as follows:
-1.) The number of rain slots (<Ir>) shall be equal to "((1000 - <Ir>) * (1 + <Rpc>) ^ 2) / 5", rounded down to the nearest integer. To note that <Rpc> shall use the fractional representation of probability.
+1.) The number of rain slots (<Ir>) shall be equal to "((1000 * <Rpc>) * (1 + <Rpc>) ^ 2) / 5", rounded down to the nearest integer. To note that <Rpc> shall use the fractional representation of probability.
 2.) The number of mixed weather slots (<Im>) shall be equal to "(1000 * <Rpc>) - <Ir>.
 3.) The number of sunny slots (<Is>) shall be equal to to "1000 - <Im> - <Ir>".
 
@@ -122,7 +122,7 @@ After that, for determining the concrete weather (Clear, Light Cloud, Overcast, 
 		- If rain session - 0
 	- Overcast - 
 		- If sunny session - 15 + (80 * <Prain> ^ 4)
-		- If mixed session - 40 + (30 * <Prain> - (70 * <Prain> ^ 1.7)
+		- If mixed session - 40 + (30 * <Prain>) - (70 * <Prain> ^ 1.7)
 		- If rain session - 0
 	- Wet - 
 		- If sunny session - 0
