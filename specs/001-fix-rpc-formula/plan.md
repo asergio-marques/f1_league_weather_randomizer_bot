@@ -1,7 +1,7 @@
 # Implementation Plan: Rpc Formula Divisor & Phase 1 Message Label
 
 **Branch**: `001-fix-rpc-formula` | **Date**: 2026-03-04 | **Spec**: [spec.md](spec.md)
-**Input**: Bug report — Phase 1 rain probability always 100%; Phase 1 message shows internal label `(Rpc)`.
+**Input**: Bug report — Phase 1 rain probability always 100%; Phase 1 message shows internal label `(Rpc)`; `/test-mode advance` hangs after final phase and season stays ACTIVE.
 
 ## Summary
 
@@ -11,7 +11,7 @@ Two isolated bugs in `src/utils/`:
 
 2. **Internal label in Phase 1 message** — `message_builder.py` includes `(Rpc)` in the user-facing `**Rain Probability (Rpc)**:` line. Fix: remove the parenthetical.
 
-Both fixes touch different files and carry no logic dependencies on each other.
+3. **Season-end closure pickling bug** — `check_and_schedule_season_end` created an inner closure `_cb` capturing `bot` and passed it directly to `schedule_season_end` → `AsyncIOScheduler.add_job`. `SQLAlchemyJobStore` pickles the callable. Closures over `bot` are not picklable → `PicklingError` → coroutine killed → `followup.send` never runs ("thinking...") → season stays `ACTIVE`. Fix: same `_phase_job`/`_GLOBAL_SERVICE` pattern already applied to phase jobs.
 
 ## Technical Context
 
@@ -23,7 +23,7 @@ Both fixes touch different files and carry no logic dependencies on each other.
 **Project Type**: Discord bot (utility functions)  
 **Performance Goals**: N/A — no performance impact  
 **Constraints**: N/A  
-**Scale/Scope**: Two one-line edits + one test assertion update
+**Scale/Scope**: Two one-line edits + one test assertion update + APScheduler callback wiring (5 files)
 
 ## Constitution Check
 
@@ -33,7 +33,7 @@ Both fixes touch different files and carry no logic dependencies on each other.
 |-----------|--------|-------|
 | I — Trusted Configuration Authority | ✅ PASS | No command or permission changes. |
 | II — Multi-Division Isolation | ✅ PASS | `compute_rpc` is a pure function; no division-specific state. |
-| III — Resilient Schedule Management | ✅ PASS | No scheduler changes. |
+| III — Resilient Schedule Management | ✅ PASS | Fix restores correct scheduler behaviour: season-end job is now stored without a pickling error and fires reliably. |
 | IV — Deterministic & Auditable Weather Generation | ✅ PASS | Fixing the formula restores the deterministic, specification-compliant computation. The audit trail (`rpc` logged in phase payload) is unaffected. |
 | V — Observability & Change Audit Trail | ✅ PASS | The logged `rpc` value will now be correct; no logging changes required. |
 | VI — Simplicity & Focused Scope | ✅ PASS | Minimal, surgical changes. Two lines of production code. |
@@ -54,11 +54,21 @@ specs/001-fix-rpc-formula/
 
 ```text
 src/utils/
-├── math_utils.py       # line 30 docstring + line 35 divisor literal: 3.025 → 3025
-└── message_builder.py  # line 16 label: "Rain Probability (Rpc):" → "Rain Probability:"
+├── math_utils.py            # line 30 docstring + line 35 divisor literal: 3.025 → 3025
+└── message_builder.py       # line 16 label: "Rain Probability (Rpc):" → "Rain Probability:"
+
+src/services/
+├── scheduler_service.py     # new _season_end_job module-level fn; _season_end_callback field;
+│                            #   register_season_end_callback(); schedule_season_end takes season_id
+└── season_end_service.py    # remove _cb closure; call schedule_season_end with season_id int
+
+src/
+├── bot.py                   # register _season_end_cb via register_season_end_callback on_ready
+└── cogs/test_mode_cog.py    # wrap runner call in try/except; send error followup on exception
 
 tests/unit/
-└── test_math_utils.py  # line 30 comment + line 32 expected value: / 3.025 → / 3025
+├── test_math_utils.py       # line 30 comment + line 32 expected value: / 3.025 → / 3025
+└── test_season_end_service.py  # _FakeScheduler.schedule_season_end: callback→season_id; assertion update
 ```
 
 ## Phase 1: Design & Changes
@@ -107,6 +117,73 @@ f"**Rain Probability**: {pct}%\n"
 The test at line 30–32 asserts `compute_rpc(0.05, 1, 1) == round((0.05 * 1 * 1) / 3.025, 2)`. Both the inline comment and the expected value use the wrong divisor. Update both to `3025`.
 
 The clamping test at line 41 (`compute_rpc(1.0, 98, 98)`) still produces a value greater than 1.0 with the correct divisor (`1.0 * 98 * 98 / 3025 ≈ 3.17`) so it continues to test the clamp correctly — no change to that assertion.
+
+### Change 4 — Pickling-safe season-end job
+
+**File**: `src/services/scheduler_service.py`
+
+```python
+# Add at module level (above _phase_job), picklable by SQLAlchemyJobStore
+async def _season_end_job(server_id: int, season_id: int) -> None:
+    if _GLOBAL_SERVICE is None: ...
+    await _GLOBAL_SERVICE._season_end_callback(server_id, season_id)
+
+# Add to SchedulerService.__init__
+self._season_end_callback: Callable | None = None
+
+# Add method
+def register_season_end_callback(self, callback: Callable) -> None: ...
+
+# Update schedule_season_end signature
+def schedule_season_end(self, server_id, fire_at, season_id: int) -> None:
+    self._scheduler.add_job(_season_end_job, ..., kwargs={"server_id": server_id, "season_id": season_id})
+```
+
+### Change 5 — Remove closure from season_end_service
+
+**File**: `src/services/season_end_service.py`
+
+```python
+# Before
+async def _cb() -> None:
+    await execute_season_end(server_id, season_id_captured, bot)
+bot.scheduler_service.schedule_season_end(server_id, fire_at, _cb)
+
+# After
+bot.scheduler_service.schedule_season_end(server_id, fire_at, season_id_captured)
+```
+
+### Change 6 — Register callback in bot.py
+
+**File**: `src/bot.py`
+
+```python
+from services.season_end_service import execute_season_end as _execute_season_end
+
+async def _season_end_cb(server_id: int, season_id: int) -> None:
+    await _execute_season_end(server_id, season_id, bot)
+
+bot.scheduler_service.register_season_end_callback(_season_end_cb)
+```
+
+### Change 7 — Defensive try/except in advance command
+
+**File**: `src/cogs/test_mode_cog.py`
+
+```python
+try:
+    await runner(entry["round_id"], self.bot)
+except Exception:
+    log.exception(...)
+    await interaction.followup.send("❌ An internal error...", ephemeral=True)
+    return
+```
+
+### Change 8 — Update test mock
+
+**File**: `tests/unit/test_season_end_service.py`
+
+`_FakeScheduler.schedule_season_end(self, server_id, fire_at, season_id)` — replace `callback` param with `season_id`; update assertion to unpack `(server_id, fire_at, season_id)` instead of `(server_id, fire_at, _cb)`.
 
 ### Verification
 

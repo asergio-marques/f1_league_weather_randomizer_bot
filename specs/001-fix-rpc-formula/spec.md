@@ -3,7 +3,7 @@
 **Feature Branch**: `001-fix-rpc-formula`
 **Created**: 2026-03-04
 **Status**: Draft
-**Input**: User-reported: Phase 1 rain probability always outputs 100%; Phase 1 message displays internal label "(Rpc)" that should not be visible to users.
+**Input**: User-reported: Phase 1 rain probability always outputs 100%; Phase 1 message displays internal label "(Rpc)" that should not be visible to users; `/test-mode advance` hangs indefinitely ("thinking...") after the final configured phase and the season is not declared complete.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -38,7 +38,26 @@ The Phase 1 Discord forecast message currently reads `**Rain Probability (Rpc)**
 
 ---
 
-### Edge Cases
+### Bug 3 — `/test-mode advance` hangs after final phase; season stays ACTIVE (Priority: P3)
+
+When an admin advances the final Phase 3 of the last round in test mode, the bot posts the Phase 3 forecast and log entries successfully but then shows "Bot is thinking..." indefinitely. The season is not marked complete, and `/season-setup` cannot be run until the bot is manually reset.
+
+The root cause is the same APScheduler closure-pickling issue previously fixed for phase jobs: `check_and_schedule_season_end` created an inner closure `_cb` capturing `bot` and passed it to `schedule_season_end`. `SQLAlchemyJobStore` attempts to pickle the callable before storing it in SQLite. Closures over `bot` are not picklable — the resulting `PicklingError` propagates through `run_phase3`, kills the coroutine before `interaction.followup.send` fires, and leaves the season row `ACTIVE`.
+
+This defect is present for **all** season-end scheduling paths, not just test mode.
+
+**Why this priority**: The bot becomes permanently broken for the server until reset. The fix mirrors the already-established `_phase_job`/`_GLOBAL_SERVICE` pattern.
+
+**Independent Test**: With test mode active, advance to the final Phase 3 of the last round. The advance command must reply with the season-complete message (not hang) and `/season-setup` must succeed immediately after.
+
+**Acceptance Scenarios**:
+
+1. **Given** the last Phase 3 has just been advanced in test mode, **When** the command completes, **Then** Discord shows the season-complete ephemeral message with no persistent "thinking...".
+2. **Given** the last Phase 3 has just been advanced, **When** checking the DB, **Then** no `seasons` row with `status = 'ACTIVE'` remains.
+3. **Given** the last Phase 3 has just been advanced, **When** the APScheduler SQLite jobstore stores the season-end job, **Then** no `PicklingError` is raised (module-level callable is used).
+4. **Given** the phase runner raises an unexpected exception, **When** the `advance` command receives it, **Then** an error message is sent ephemerally and the interaction is not left hanging.
+
+---
 
 - What if `Btrack * Rand1 * Rand2 / 3025` produces a value outside [0.0, 1.0]? → Clamping logic already exists and must remain; with the correct divisor this should only trigger for malformed input data.
 - Does the divisor change affect Phase 2 or Phase 3 outputs? → No. Both phases consume the already-computed `rpc` float stored in `PhaseResult.payload`; the formula change only affects how that float is computed in Phase 1.
@@ -51,6 +70,10 @@ The Phase 1 Discord forecast message currently reads `**Rain Probability (Rpc)**
 - **FR-002**: The docstring of `compute_rpc` MUST be updated to reflect the correct divisor.
 - **FR-003**: The Phase 1 forecast message produced by `phase1_message()` in `src/utils/message_builder.py` MUST display `**Rain Probability**:` with no `(Rpc)` suffix.
 - **FR-004**: All existing unit tests for `compute_rpc` MUST be updated to assert the correct output values under the new divisor. Any test that previously expected a clamped value of 1.0 due to the wrong divisor MUST be corrected.
+- **FR-005**: `SchedulerService.schedule_season_end` MUST use the module-level `_season_end_job` function (picklable by `SQLAlchemyJobStore`) with `server_id` and `season_id` as kwargs instead of accepting an unpicklable closure.
+- **FR-006**: `SchedulerService` MUST expose a `register_season_end_callback(callback)` method so the bot can inject the async callable that `_season_end_job` delegates to at runtime.
+- **FR-007**: `bot.py` MUST register a `_season_end_cb(server_id, season_id)` closure via `register_season_end_callback` during `on_ready`, after the scheduler is started.
+- **FR-008**: The `advance` subcommand in `TestModeCog` MUST wrap the phase runner call in a `try/except` and send a clear error followup instead of leaving the interaction hanging.
 
 ### Key Entities
 
@@ -65,6 +88,9 @@ The Phase 1 Discord forecast message currently reads `**Rain Probability (Rpc)**
 - **SC-002**: The maximum possible `Rpc` value (`Btrack=0.3`, `Rand1=98`, `Rand2=98`) returns `0.95` (≤ 0.96 as stated in specification), not `1.0`.
 - **SC-003**: The Phase 1 Discord message contains the string `**Rain Probability**:` and does not contain the string `(Rpc)`.
 - **SC-004**: All existing unit tests pass after the fix (no regressions).
+- **SC-005**: `schedule_season_end` no longer accepts a `callback` argument; it accepts `season_id: int`.
+- **SC-006**: After the final Phase 3 advance in test mode, the active season row is gone and `/season-setup` succeeds.
+- **SC-007**: The `advance` command sends an error followup (not a hanging interaction) when the phase runner raises an exception.
 
 ---
 
