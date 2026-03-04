@@ -148,6 +148,24 @@ class AmendmentCog(commands.Cog):
             if pend_rnd["format"] == RoundFormat.MYSTERY:
                 pend_rnd["track_name"] = None
 
+            # Persist the updated in-memory setup to DB
+            new_sid = await self.bot.season_service.save_pending_snapshot(
+                server_id=pending_cfg.server_id,
+                start_date=pending_cfg.start_date,
+                existing_season_id=pending_cfg.season_id,
+                divisions=[
+                    {
+                        "name": d.name,
+                        "role_id": d.role_id,
+                        "channel_id": d.channel_id,
+                        "rounds": d.rounds,
+                    }
+                    for d in pending_cfg.divisions
+                    if d.name
+                ],
+            )
+            pending_cfg.season_id = new_sid
+
             await interaction.response.send_message(
                 f"✅ Round {round_number} in **{pend_div.name}** updated in pending setup "
                 f"(no DB write — use `/season-approve` to commit).",

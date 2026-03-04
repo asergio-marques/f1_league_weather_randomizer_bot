@@ -208,6 +208,7 @@ async def test_view_on_timeout() -> None:
 async def test_round_add_no_conflict_continues_normally() -> None:
     """T007-10: /round-add with no conflict appends and sends success (existing path unchanged)."""
     bot = MagicMock()
+    bot.season_service.save_pending_snapshot = AsyncMock(return_value=42)
     cog = SeasonCog(bot)
 
     # Build a pending config with one division containing round 1

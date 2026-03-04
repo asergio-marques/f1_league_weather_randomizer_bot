@@ -48,6 +48,7 @@ When a duplicate round number is detected, the bot must pause and ask the admin 
 5. **Given** the prompt is shown and the admin selects **Cancel**, **Then** no change is made; the division's round list is identical to its state before the command was issued.
 6. **Given** a `/round-add` with a round number that does not conflict with any existing round in that division, **Then** the round is added immediately with the existing success message — no prompt is shown.
 7. **Given** the interactive prompt is shown and the admin does not interact within 60 seconds, **Then** the interaction times out, the prompt updates to a timeout message, and no change is made to the round list.
+8. **Given** a division already has rounds 1 and 3 with their respective dates, **When** `/round-add` is called with `round_number=2` but a `scheduled_at` that is earlier than round 1's date or later than round 3's date, **Then** the command returns a descriptive error naming the offending neighbour round and its date; no round is added and no prompt is shown. Same-day rounds (equal `scheduled_at`) are permitted.
 
 ---
 
@@ -64,7 +65,7 @@ When a duplicate round number is detected, the bot must pause and ask the admin 
 ### Functional Requirements
 
 - **FR-001**: `/round-amend` MUST check for a pending in-memory season setup belonging to the invoking server (`guild_id`) before checking for an active (approved) season in the database. Any admin passing `@admin_only` may amend any pending setup for their server.
-- **FR-002**: When `/round-amend` targets a pending config, the amendment MUST update the matching round dict in memory; no database write occurs.
+- **FR-002**: When `/round-amend` targets a pending config, the amendment MUST update the matching round dict in memory **and** immediately snapshot the full pending config to the database (status=SETUP) for crash-recovery safety. No phase-invalidation logic MUST run.
 - **FR-003**: When `/round-amend` targets a pending config and changes the format to MYSTERY, the track field of that round MUST be cleared to `None`.
 - **FR-004**: When `/round-amend` targets a pending config and changes the format away from MYSTERY to a non-Mystery format, a `track` value MUST be provided; if not supplied and the stored track is already empty, the amendment MUST be rejected with a descriptive error.
 - **FR-005**: When `/round-amend` targets a pending config, the phase-invalidation logic used for active-season amendments MUST NOT run.
@@ -76,6 +77,9 @@ When a duplicate round number is detected, the bot must pause and ask the admin 
 - **FR-011**: The duplicate-resolution prompt MUST expire after 60 seconds; on expiry the prompt MUST update to indicate the timeout and no round change MUST occur.
 - **FR-012**: The duplicate-resolution prompt MUST be ephemeral.
 - **FR-013**: `/round-add` with no conflicting round number MUST continue to work exactly as before — no prompt, immediate success message.
+- **FR-014**: Every mutation of the pending season config (`/season-setup`, `/division-add`, `/round-add`, duplicate-resolution buttons, `/round-amend` on pending) MUST atomically persist the full config to the database as a `SETUP`-status season record. On bot startup, all `SETUP`-status seasons MUST be loaded back into the in-memory pending config store so setup can continue without restarting from scratch.
+- **FR-015**: Before adding a round (both the no-conflict path and prior to showing the duplicate prompt), `/round-add` MUST validate that the supplied `scheduled_at` is chronologically consistent with the round's neighbours by number: it MUST NOT be strictly earlier than the latest `scheduled_at` among lower-numbered rounds, and MUST NOT be strictly later than the earliest `scheduled_at` among higher-numbered rounds. Equal datetimes (same-day rounds) MUST be accepted. A violation MUST return a descriptive ephemeral error naming the offending neighbour round number and its datetime.
+- **FR-016**: During `/season-approve`, all rounds MUST be registered with APScheduler before `transition_to_active` is called on the DB. A failure during scheduling MUST leave the season in `SETUP` status so the admin can retry approval rather than finding an `ACTIVE` season with no phase jobs running.
 
 ### Key Entities
 
@@ -92,12 +96,13 @@ When a duplicate round number is detected, the bot must pause and ask the admin 
 - **SC-004**: After each of the four resolution choices, the division's round list contains unique round numbers in ascending order with no gaps caused by the operation.
 - **SC-005**: All existing tests continue to pass; new tests cover the pending-amend path (US1) and all four duplicate-resolution branches (US2).
 - **SC-006**: The interactive duplicate-resolution prompt times out cleanly after 60 seconds, leaving the round list unchanged.
+- **SC-007**: A bot restart mid-setup does not lose any config entered prior to the crash; admins can resume with `/division-add`, `/round-add`, or `/season-review` immediately after the bot reconnects.
 
 ---
 
 ## Assumptions
 
-- The pending config is looked up by `guild_id` (server) when used from `/round-amend`, so any admin with the appropriate permission can make corrections to any in-progress setup for their server. When used from `/division-add`, `/round-add`, and `/season-review` the config continues to be keyed by `user_id` as today.
+- The pending config is looked up by `guild_id` (server) for all admin commands that mutate it (`/round-amend`, `/division-add`, `/round-add`, `/season-review`, `/season-approve`). A user-id key may exist in the in-memory dict (from the initial `/season-setup` invocation), but all commands also perform a fallback guild-id scan so any server admin can continue a setup started by another admin.
 - Round numbers are positive integers; the shift logic never produces round number 0 or negative numbers in any normal flow.
 - The interactive prompt (US2) uses four Discord buttons in a single row, as the options are mutually exclusive and fit the 5-button Discord limit.
 
@@ -108,3 +113,7 @@ When a duplicate round number is detected, the bot must pause and ask the admin 
 ### Session 2026-03-04
 
 - Q: Should `/round-amend` on a pending setup be restricted to the admin who started it, or open to any server admin? → A: Any server admin holding `@admin_only` permission may amend any pending setup for their server. The cog looks up by `guild_id` when handling `/round-amend` (FR-001, Assumptions updated).
+- Q: Should FR-002 reflect that a DB snapshot is written after each pending-config amendment, or keep it as "no database write occurs"? → A: Update FR-002 to state that a SETUP-status DB snapshot is taken immediately after the in-memory update for crash-recovery safety; phase-invalidation still does not run. (FR-002 updated, Assumptions updated.)
+- Q: Should FR-015 (date ordering validation on `/round-add`) and a matching acceptance scenario be added? → A: Yes — add FR-015 and acceptance scenario 8 to US2. Rounds with equal `scheduled_at` are permitted; strict earlier/later comparisons reject chronologically inconsistent entries. (FR-015 and US2 scenario 8 added.)
+- Q: Should FR-016 (schedule-before-transition ordering guarantee at approval) be added? → A: Yes — all rounds must be scheduled with APScheduler before `transition_to_active` is called; a scheduling failure leaves the season in SETUP status. (FR-016 added.)
+- Q: Should the "Go Back to Edit" button response message content be specified in the spec? → A: No — treat as a cosmetic implementation detail; no FR or UX note added.
