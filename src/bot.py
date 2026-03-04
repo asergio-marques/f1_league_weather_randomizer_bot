@@ -93,10 +93,12 @@ async def main() -> None:
     from cogs.init_cog import InitCog
     from cogs.season_cog import SeasonCog
     from cogs.amendment_cog import AmendmentCog
+    from cogs.test_mode_cog import TestModeCog
 
     await bot.add_cog(InitCog(bot))
     await bot.add_cog(SeasonCog(bot))
     await bot.add_cog(AmendmentCog(bot))
+    await bot.add_cog(TestModeCog(bot))
 
     log.info("All cogs loaded. Starting bot...")
     async with bot:

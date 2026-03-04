@@ -53,13 +53,20 @@ async def test_run_migrations_idempotent() -> None:
 
     try:
         await run_migrations(db_path)
+
+        async with get_connection(db_path) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM schema_migrations")
+            (count_after_first,) = await cursor.fetchone()
+
+        assert count_after_first >= 1  # at least one migration file recorded
+
         await run_migrations(db_path)  # Second run — should be a no-op
 
         async with get_connection(db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM schema_migrations")
-            (count,) = await cursor.fetchone()
+            (count_after_second,) = await cursor.fetchone()
 
-        assert count == 1  # Only 001_initial.sql
+        assert count_after_second == count_after_first  # no duplicates
     finally:
         os.unlink(db_path)
 

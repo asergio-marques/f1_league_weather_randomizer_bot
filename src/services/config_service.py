@@ -20,7 +20,8 @@ class ConfigService:
         """Return the ServerConfig for *server_id*, or None if not configured."""
         async with get_connection(self._db_path) as db:
             cursor = await db.execute(
-                "SELECT server_id, interaction_role_id, interaction_channel_id, log_channel_id "
+                "SELECT server_id, interaction_role_id, interaction_channel_id, "
+                "       log_channel_id, test_mode_active "
                 "FROM server_configs WHERE server_id = ?",
                 (server_id,),
             )
@@ -33,6 +34,7 @@ class ConfigService:
             interaction_role_id=row["interaction_role_id"],
             interaction_channel_id=row["interaction_channel_id"],
             log_channel_id=row["log_channel_id"],
+            test_mode_active=bool(row["test_mode_active"]),
         )
 
     async def save_server_config(self, cfg: ServerConfig) -> None:
@@ -41,18 +43,21 @@ class ConfigService:
             await db.execute(
                 """
                 INSERT INTO server_configs
-                    (server_id, interaction_role_id, interaction_channel_id, log_channel_id)
-                VALUES (?, ?, ?, ?)
+                    (server_id, interaction_role_id, interaction_channel_id,
+                     log_channel_id, test_mode_active)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(server_id) DO UPDATE SET
                     interaction_role_id    = excluded.interaction_role_id,
                     interaction_channel_id = excluded.interaction_channel_id,
-                    log_channel_id         = excluded.log_channel_id
+                    log_channel_id         = excluded.log_channel_id,
+                    test_mode_active       = excluded.test_mode_active
                 """,
                 (
                     cfg.server_id,
                     cfg.interaction_role_id,
                     cfg.interaction_channel_id,
                     cfg.log_channel_id,
+                    int(cfg.test_mode_active),
                 ),
             )
             await db.commit()
