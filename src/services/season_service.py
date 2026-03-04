@@ -72,18 +72,16 @@ class SeasonService:
         name: str,
         mention_role_id: int,
         forecast_channel_id: int,
-        race_day: int,
-        race_time: str,
     ) -> Division:
         """Insert a division and return it."""
         async with get_connection(self._db_path) as db:
             cursor = await db.execute(
                 """
                 INSERT INTO divisions
-                    (season_id, name, mention_role_id, forecast_channel_id, race_day, race_time)
-                VALUES (?, ?, ?, ?, ?, ?)
+                    (season_id, name, mention_role_id, forecast_channel_id)
+                VALUES (?, ?, ?, ?)
                 """,
-                (season_id, name, mention_role_id, forecast_channel_id, race_day, race_time),
+                (season_id, name, mention_role_id, forecast_channel_id),
             )
             await db.commit()
             div_id = cursor.lastrowid
@@ -94,16 +92,14 @@ class SeasonService:
             name=name,
             mention_role_id=mention_role_id,
             forecast_channel_id=forecast_channel_id,
-            race_day=race_day,
-            race_time=race_time,
         )
 
     async def get_divisions(self, season_id: int) -> list[Division]:
         """Return all divisions for *season_id*."""
         async with get_connection(self._db_path) as db:
             cursor = await db.execute(
-                "SELECT id, season_id, name, mention_role_id, forecast_channel_id, "
-                "race_day, race_time FROM divisions WHERE season_id = ?",
+                "SELECT id, season_id, name, mention_role_id, forecast_channel_id "
+                "FROM divisions WHERE season_id = ?",
                 (season_id,),
             )
             rows = await cursor.fetchall()
@@ -265,8 +261,6 @@ def _row_to_division(row: object) -> Division:
         name=row["name"],
         mention_role_id=row["mention_role_id"],
         forecast_channel_id=row["forecast_channel_id"],
-        race_day=row["race_day"],
-        race_time=row["race_time"],
     )
 
 

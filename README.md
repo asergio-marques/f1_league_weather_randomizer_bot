@@ -62,16 +62,120 @@ This registers:
 
 ## Slash Commands
 
-| Command | Access | Description |
-|---------|--------|-------------|
-| `/bot-init` | Server admin | One-time bot configuration |
-| `/season-setup` | Trusted admin | Start interactive season configuration wizard |
-| `/division-add` | Trusted admin | Add a division to the pending season |
-| `/round-add` | Trusted admin | Add a round to a division in the pending season |
-| `/season-review` | Trusted admin | Review pending config with Approve/Cancel buttons |
-| `/season-approve` | Trusted admin | Commit configuration and arm the weather scheduler |
-| `/season-status` | Interaction role | Read-only summary of active season |
-| `/round-amend` | Trusted admin | Amend a round (invalidates prior forecasts) |
+### `/bot-init` — One-time server setup
+*Access: Server administrator (Manage Server permission)*
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `interaction_role` | Role | ✅ | The Discord role permitted to use bot commands |
+| `interaction_channel` | Channel | ✅ | The only channel where bot commands are accepted |
+| `log_channel` | Channel | ✅ | Channel where computation audit logs are posted |
+| `force` | Boolean | — | Set `True` to overwrite an existing configuration (default: `False`) |
+
+---
+
+### Season Setup Workflow
+
+Season configuration is a multi-step flow: first run `/season-setup`, then add each division with `/division-add`, then add rounds with `/round-add`, then review and approve.
+
+#### `/season-setup` — Start session wizard
+*Access: Trusted admin*
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `start_date` | String | ✅ | Season start date in `YYYY-MM-DD` format |
+| `num_divisions` | Integer | ✅ | Number of divisions to configure (1–10) |
+
+#### `/division-add` — Add a division
+*Access: Trusted admin · Requires active `/season-setup` session*
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | ✅ | Division name (used to reference it in subsequent commands) |
+| `role` | Role | ✅ | Discord role mentioned in weather forecast messages for this division |
+| `forecast_channel` | Channel | ✅ | Channel where weather forecast messages are posted |
+
+#### `/round-add` — Add a round to a division
+*Access: Trusted admin · Requires active `/season-setup` session*
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `division_name` | String | ✅ | Exact name of the division this round belongs to |
+| `round_number` | Integer | ✅ | Round number within the division |
+| `format` | String | ✅ | Race format: `NORMAL`, `SPRINT`, `MYSTERY`, or `ENDURANCE` |
+| `scheduled_at` | String | ✅ | Race date and time in ISO format: `YYYY-MM-DDTHH:MM:SS` (UTC) |
+| `track` | String | — | Track ID or name — use the autocomplete dropdown (e.g. `27` or `United Kingdom`). Omit for Mystery rounds. |
+
+#### `/season-review` — Review pending configuration
+*Access: Trusted admin*
+
+No parameters. Displays the pending season configuration with **Approve** and **Go Back to Edit** buttons.
+
+#### `/season-approve` — Commit the configuration
+*Access: Trusted admin*
+
+No parameters. Saves all pending divisions and rounds to the database and arms the weather scheduler. Equivalent to pressing Approve in `/season-review`.
+
+---
+
+### Active Season Commands
+
+#### `/season-status` — Active season summary
+*Access: Interaction role*
+
+No parameters. Shows active season overview: divisions, next scheduled round per division, and its track and datetime.
+
+#### `/round-amend` — Amend a round in the active season
+*Access: Trusted admin*
+
+At least one optional field must be provided.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `division_name` | String | ✅ | Name of the division containing the round |
+| `round_number` | Integer | ✅ | The round number to amend |
+| `track` | String | — | New track — use the autocomplete dropdown (e.g. `05` or `Bahrain`). Amending invalidates prior weather phases. |
+| `scheduled_at` | String | — | New race datetime in ISO format `YYYY-MM-DDTHH:MM:SS` (UTC). Amending re-triggers the scheduler. |
+| `format` | String | — | New format: `NORMAL`, `SPRINT`, `MYSTERY`, or `ENDURANCE`. Amending invalidates prior weather phases. |
+
+---
+
+### Test Mode Commands
+
+Test mode allows triggering weather phases on demand without waiting for the real scheduled times. Useful for verifying the bot setup before a live season.
+
+#### `/test-mode toggle` — Enable or disable test mode
+*Access: Interaction role*
+
+No parameters. Flips test mode on/off; state persists across bot restarts.
+
+#### `/test-mode advance` — Execute the next pending phase
+*Access: Interaction role · Requires test mode active*
+
+No parameters. Immediately runs the next pending weather phase in the queue (ordered by round date, then division). Bypasses all scheduled time checks — rounds can be advanced at any time regardless of their configured date.
+
+#### `/test-mode review` — View phase completion status
+*Access: Interaction role · Requires test mode active*
+
+No parameters. Displays a summary of all rounds for the active season, showing which phases (✅/⏳) have been completed per round and division.
+
+---
+
+### Track ID Reference
+
+Use these IDs in `/round-add` and `/round-amend` — autocomplete will show the full list as you type.
+
+| ID | Track | ID | Track | ID | Track |
+|----|-------|----|-------|----|-------|
+| 01 | Abu Dhabi | 10 | China | 19 | Monza |
+| 02 | Australia | 11 | Hungary | 20 | Netherlands |
+| 03 | Austria | 12 | Imola | 21 | Portugal |
+| 04 | Azerbaijan | 13 | Japan | 22 | Qatar |
+| 05 | Bahrain | 14 | Las Vegas | 23 | Saudi Arabia |
+| 06 | Barcelona | 15 | Madrid | 24 | Singapore |
+| 07 | Belgium | 16 | Mexico | 25 | Texas |
+| 08 | Brazil | 17 | Miami | 26 | Turkey |
+| 09 | Canada | 18 | Monaco | 27 | United Kingdom |
 
 ---
 
