@@ -9,5 +9,3 @@ class Division:
     name: str
     mention_role_id: int
     forecast_channel_id: int
-    race_day: int   # 0=Monday ... 6=Sunday
-    race_time: str  # HH:MM UTC

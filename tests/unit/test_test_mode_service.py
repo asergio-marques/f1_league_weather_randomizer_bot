@@ -50,13 +50,13 @@ async def _seed(db_path: str, rounds: list[dict]) -> None:
         # Two divisions with deterministic ids
         await db.execute(
             "INSERT INTO divisions "
-            "(id, season_id, name, mention_role_id, forecast_channel_id, race_day, race_time) "
-            "VALUES (1, 1, 'Division A', 11, 21, 6, '18:00')"
+            "(id, season_id, name, mention_role_id, forecast_channel_id) "
+            "VALUES (1, 1, 'Division A', 11, 21)"
         )
         await db.execute(
             "INSERT INTO divisions "
-            "(id, season_id, name, mention_role_id, forecast_channel_id, race_day, race_time) "
-            "VALUES (2, 1, 'Division B', 12, 22, 6, '20:00')"
+            "(id, season_id, name, mention_role_id, forecast_channel_id) "
+            "VALUES (2, 1, 'Division B', 12, 22)"
         )
 
         default_sched = (

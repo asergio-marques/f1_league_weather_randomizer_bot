@@ -33,7 +33,7 @@ class InitCog(commands.Cog):
         force="Set to True to overwrite existing configuration.",
     )
     @admin_only
-    async def bot_init(
+    async def handle_bot_init(
         self,
         interaction: discord.Interaction,
         interaction_role: discord.Role,

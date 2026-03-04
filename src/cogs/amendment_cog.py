@@ -14,7 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from models.round import RoundFormat
-from models.track import TRACKS
+from models.track import TRACKS, TRACK_IDS
 from utils.channel_guard import channel_guard, admin_only
 
 log = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class AmendmentCog(commands.Cog):
     @app_commands.describe(
         division_name="Name of the division containing this round",
         round_number="The round number to amend",
-        track="New track name (leave blank to keep current)",
+        track="New track ID or name (leave blank to keep current)",
         scheduled_at="New race datetime in ISO format YYYY-MM-DDTHH:MM:SS (leave blank to keep current)",
         format="New format: NORMAL, SPRINT, MYSTERY, or ENDURANCE (leave blank to keep current)",
     )
@@ -84,13 +84,15 @@ class AmendmentCog(commands.Cog):
         amendments: list[tuple[str, object]] = []
 
         if track:
-            if track not in TRACKS:
+            # Allow lookup by numeric ID (e.g. "27" → "United Kingdom")
+            resolved = TRACK_IDS.get(track.zfill(2), track)
+            if resolved not in TRACKS:
                 await interaction.response.send_message(
-                    f"❌ Unknown track `{track}`. Valid: {', '.join(sorted(TRACKS))}",
+                    f"\u274c Unknown track `{track}`. Use `/round-amend` and let autocomplete guide you.",
                     ephemeral=True,
                 )
                 return
-            amendments.append(("track_name", track))
+            amendments.append(("track_name", resolved))
 
         if scheduled_at:
             try:
@@ -133,6 +135,19 @@ class AmendmentCog(commands.Cog):
             view=view,
             ephemeral=True,
         )
+
+    @round_amend.autocomplete("track")
+    async def round_amend_track_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        results: list[app_commands.Choice[str]] = []
+        for id_str, name in TRACK_IDS.items():
+            label = f"{id_str} \u2013 {name}"
+            if current.lower() in label.lower():
+                results.append(app_commands.Choice(name=label, value=name))
+        return results[:25]
 
 
 class _ConfirmView(discord.ui.View):

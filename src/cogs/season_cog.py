@@ -19,7 +19,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from models.round import RoundFormat
-from models.track import TRACKS
+from models.track import TRACKS, TRACK_IDS
 from utils.channel_guard import channel_guard, admin_only
 
 log = logging.getLogger(__name__)
@@ -33,8 +33,6 @@ class PendingDivision:
     name: str = ""
     role_id: int = 0
     channel_id: int = 0
-    race_day: int = 0
-    race_time: str = "18:00"
     rounds: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -120,8 +118,6 @@ class SeasonCog(commands.Cog):
         name="Division name",
         role="The Discord role to mention for this division",
         forecast_channel="Channel where weather forecasts are posted",
-        race_day="Day of the week races are held (0=Monday, 6=Sunday)",
-        race_time="UTC race time in HH:MM format (e.g. 18:00)",
     )
     @channel_guard
     @admin_only
@@ -131,8 +127,6 @@ class SeasonCog(commands.Cog):
         name: str,
         role: discord.Role,
         forecast_channel: discord.TextChannel,
-        race_day: int,
-        race_time: str,
     ) -> None:
         cfg = self._pending.get(interaction.user.id)
         if cfg is None:
@@ -142,23 +136,13 @@ class SeasonCog(commands.Cog):
             )
             return
 
-        if not (0 <= race_day <= 6):
-            await interaction.response.send_message(
-                "❌ `race_day` must be 0 (Monday) to 6 (Sunday).",
-                ephemeral=True,
-            )
-            return
-
         div = PendingDivision(
             name=name,
             role_id=role.id,
             channel_id=forecast_channel.id,
-            race_day=race_day,
-            race_time=race_time,
         )
 
         # Replace first empty division or append
-        filled = [d for d in cfg.divisions if d.name]
         empty = [d for d in cfg.divisions if not d.name]
         if empty:
             idx = cfg.divisions.index(empty[0])
@@ -166,11 +150,9 @@ class SeasonCog(commands.Cog):
         else:
             cfg.divisions.append(div)
 
-        day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         await interaction.response.send_message(
             f"✅ Division **{name}** added.\n"
-            f"Role: {role.mention} | Channel: {forecast_channel.mention} | "
-            f"Race: {day_names[race_day]} {race_time} UTC",
+            f"Role: {role.mention} | Channel: {forecast_channel.mention}",
             ephemeral=True,
         )
 
@@ -186,7 +168,7 @@ class SeasonCog(commands.Cog):
         division_name="Name of the division this round belongs to",
         round_number="Round number",
         format="Round format (NORMAL, SPRINT, MYSTERY, ENDURANCE)",
-        track="Track name (e.g. United Kingdom). Leave blank for Mystery rounds.",
+        track="Track ID or name (e.g. 27 or United Kingdom). Leave blank for Mystery rounds.",
         scheduled_at="Race date/time in ISO format (YYYY-MM-DDTHH:MM:SS UTC)",
     )
     @channel_guard
@@ -219,9 +201,12 @@ class SeasonCog(commands.Cog):
 
         track_name = track.strip() or None
         if track_name and track_name not in TRACKS:
+            # Allow lookup by numeric ID (e.g. "27" → "United Kingdom")
+            track_name = TRACK_IDS.get(track_name.zfill(2), track_name)
+        if track_name and track_name not in TRACKS:
             await interaction.response.send_message(
-                f"❌ Unknown track `{track_name}`.\n"
-                f"Valid tracks: {', '.join(sorted(TRACKS))}",
+                f"\u274c Unknown track `{track_name}`.\n"
+                f"Use `/round-add` and type a number or name — autocomplete will guide you.",
                 ephemeral=True,
             )
             return
@@ -256,6 +241,19 @@ class SeasonCog(commands.Cog):
             ephemeral=True,
         )
 
+    @round_add.autocomplete("track")
+    async def round_add_track_autocomplete(
+        self,
+        interaction: discord.Interaction,
+        current: str,
+    ) -> list[app_commands.Choice[str]]:
+        results: list[app_commands.Choice[str]] = []
+        for id_str, name in TRACK_IDS.items():
+            label = f"{id_str} \u2013 {name}"
+            if current.lower() in label.lower():
+                results.append(app_commands.Choice(name=label, value=name))
+        return results[:25]
+
     # ------------------------------------------------------------------
     # /season-review
     # ------------------------------------------------------------------
@@ -284,12 +282,10 @@ class SeasonCog(commands.Cog):
         for div in cfg.divisions:
             if not div.name:
                 continue
-            day_names = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
             lines.append(
-                f"📂 **{div.name}** | "
+                f"\ud83d\udcc2 **{div.name}** | "
                 f"Role <@&{div.role_id}> | "
-                f"Channel <#{div.channel_id}> | "
-                f"Race: {day_names[div.race_day]} {div.race_time} UTC"
+                f"Channel <#{div.channel_id}>"
             )
             for r in div.rounds:
                 lines.append(
@@ -336,8 +332,6 @@ class SeasonCog(commands.Cog):
                 div_cfg.name,
                 div_cfg.role_id,
                 div_cfg.channel_id,
-                div_cfg.race_day,
-                div_cfg.race_time,
             )
             for r in div_cfg.rounds:
                 rnd = await season_svc.add_round(
