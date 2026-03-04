@@ -185,3 +185,48 @@ TestModeCog.advance()
 | V — Audit trail | Pass | `audit_entries` deleted last, same as in reset_service |
 | VI — Focused scope | Pass | No new slash commands; one new internal service |
 | VII — Output channels | Pass | Season-completion message goes to existing log channel only |
+
+---
+
+## Addendum — Startup Recovery (2026-03-04, Clarification Session)
+
+### Summary
+
+| # | Change | Files |
+|---|--------|-------|
+| C-006 | On `on_ready`, scan all servers with active seasons and re-register any season-end jobs lost during a restart; fire immediately if due date already passed | `bot.py`, `season_end_service.py`, `season_service.py` |
+
+### New SeasonService Method
+
+| Method | Purpose |
+|--------|---------|
+| `get_all_server_ids_with_active_season()` | Returns list of all distinct `server_id` values that have an `ACTIVE`-status season row |
+
+### Startup Recovery Flow
+
+```
+bot.py  on_ready()
+  └─ for server_id in season_service.get_all_server_ids_with_active_season():
+       ├─ all_phases_complete(server_id)? No → skip
+       └─ Yes → fire_at = get_last_scheduled_at(server_id) + 7 days
+                ├─ now > fire_at → execute_season_end(server_id, ...) immediately
+                └─ now ≤ fire_at → schedule_season_end(server_id, fire_at, cb)
+```
+
+### Design Notes
+
+- Reuses existing `check_and_schedule_season_end` logic; the `on_ready` hook is thin — it just iterates servers and defers to that helper (with past-timestamp branch added).
+- `execute_season_end` is already idempotent (active-season guard), so duplicate calls during startup are safe.
+- New tests added to `tests/unit/test_season_end_service.py`: `test_startup_recovery_schedules_future_job`, `test_startup_recovery_fires_immediately_when_past`, `test_startup_recovery_noop_when_phases_incomplete`.
+
+### Constitution Check (startup recovery)
+
+| Principle | Status | Notes |
+|-----------|--------|-------|
+| I — Access tiers | Pass | No new commands; startup is internal |
+| II — Server isolation | Pass | Each server_id processed independently |
+| III — Phase integrity | Pass | `all_phases_complete` guard unchanged |
+| IV — Scheduler contract | Pass | `cancel_season_end` called inside `execute_season_end` before deletion |
+| V — Audit trail | Pass | Deletion still routes through `reset_server_data` |
+| VI — Focused scope | Pass | One new service method; no new commands |
+| VII — Output channels | Pass | Log channel fallback: `logging.warning` + proceed |

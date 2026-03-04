@@ -151,3 +151,38 @@ A server administrator needs to wipe all bot data for their Discord server — e
 - **SC-009**: Passing any string other than `"CONFIRM"` is rejected before execution; the DB remains unchanged.
 - **SC-010**: The reset command is inaccessible to users without `Manage Server` permission.
 
+
+---
+
+## Addendum — Correctness Fixes (2026-03-04)
+
+### Functional Requirements (correctness fixes)
+
+- **FR-020**: `/round-add` MUST reject any submission where `track` is empty or blank and `format` is not `MYSTERY`; the error message MUST name the format.
+- **FR-021**: `/season-setup` MUST reject initialisation if the invoking server already has a physically present season row in the database (i.e., `has_existing_season()` returns True — any row not yet deleted, regardless of status) OR an in-memory pending setup exists; the error MUST be shown ephemerally. Rows removed by `/bot-reset` or the season-end deletion are gone entirely (hard-delete); after such removal `has_existing_season()` returns False and a new setup is permitted.
+- **FR-022**: `/bot-reset` MUST also remove any in-memory pending season setup for the invoking server and cancel any pending `season_end` APScheduler job.
+- **FR-023**: After every Phase 3 run, the bot MUST check whether all non-MYSTERY rounds for the active season have all three phases complete; if so, it MUST schedule a season-end job to fire 7 days after the latest round's `scheduled_at` timestamp.
+- **FR-024**: When the season-end job fires (or is triggered immediately via test mode), the bot MUST attempt to post a log message to the configured log channel, then delete all season data for that server (equivalent to `/bot-reset confirm:CONFIRM full:False`). If the log channel cannot be resolved (not configured, or Discord channel deleted), the bot MUST emit a `logging.warning` to the bot console and proceed with deletion regardless — deletion MUST NOT be blocked by a missing channel.
+- **FR-025**: In `bot.py`'s `on_ready` handler (after all cogs are loaded), the bot MUST scan the database for any server whose active season has all phases complete and attempt to re-register the season-end job using `last_round.scheduled_at + 7 days`. If that timestamp is already in the past (`now > fire_at`), the bot MUST call `execute_season_end` directly (immediate execution) rather than scheduling a future job, so that a prolonged outage does not permanently suppress a due deletion.
+- **FR-026**: In test mode, when `/test-mode advance` is run on the last pending phase (Phase 3 of the last chronological round), the bot MUST immediately execute the season end (bypassing the 7-day delay) and cancel any just-scheduled season-end job before doing so.
+
+### Success Criteria (correctness fixes)
+
+- **SC-011**: `/round-add format:RACE track:<empty>` returns a descriptive error and does not create a round; `/round-add format:MYSTERY track:<empty>` succeeds.
+- **SC-012**: A second `/season-setup` on a server with an existing approved (or pending-approval) season row is rejected ephemerally; a second attempt while a pending in-memory config exists is also rejected. After a `/bot-reset` or season-end deletion removes the row, a subsequent `/season-setup` on the same server MUST succeed.
+- **SC-013**: After `/bot-reset`, a subsequent check of pending configs and APScheduler jobs shows no `season_end_{server_id}` job and no in-memory pending season for that server.
+- **SC-014**: After Phase 3 runs for the last round, an APScheduler job `season_end_{server_id}` exists and is scheduled for `last_round.scheduled_at + 7 days`.
+- **SC-015**: After a bot restart where a season was fully complete, the `season_end_{server_id}` job is re-registered within the bot's `on_ready` startup sequence.
+- **SC-016**: `/test-mode advance` on the last Phase 3 immediately posts the season-complete log message and removes all season data, without waiting 7 days.
+
+---
+
+## Clarifications
+
+### Session 2026-03-04
+
+- Q: If the bot restarts before the season-end job fires, should pending season-end jobs be recovered? → A: Recover on restart — bot startup scans DB and re-schedules any due/pending season ends (FR-025, SC-015).
+- Q: Should `has_existing_season()` block new setups based on soft-deleted / COMPLETED rows? → A: Hard-delete only; `has_existing_season()` returns False when no row exists (approved or pending-approval). After a season is deleted via reset or season-end, the row is gone and a fresh `/season-setup` is unblocked (FR-021 updated).
+- Q: On startup recovery, if the season-end fire time is already in the past, what should happen? → A: Fire immediately — if `now > fire_at`, call `execute_season_end` directly during startup rather than scheduling (FR-025 updated).
+- Q: Where should the FR-025 startup scan be attached? → A: `bot.py` `on_ready` — scan runs after all cogs are loaded, using `bot.season_service` and `bot.scheduler_service` (FR-025 updated).
+- Q: If the configured log channel is missing or unresolvable when `execute_season_end` fires, what should happen? → A: Log to bot console only — emit `logging.warning` and proceed with deletion; the log message post is skipped but deletion is never blocked (FR-024 updated).

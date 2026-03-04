@@ -351,3 +351,40 @@
 | 5 — Validation | T012, T013 | ✅ Complete |
 | 6 — Bot reset command | T014–T019 | ✅ Complete |
 | 7 — Correctness fixes | T020–T027 | ✅ Complete |
+
+---
+
+## Phase 8 — Startup Season-End Recovery (FR-025)
+
+### T028 — Startup scan in `bot.py` `on_ready`
+
+**Goal**: On bot startup, re-register any season-end APScheduler jobs that were lost due to a process restart.
+
+**Files**: `src/bot.py`, `src/services/season_end_service.py`, `tests/unit/test_season_end_service.py`
+
+**Acceptance criteria**:
+- [ ] `on_ready` in `bot.py` iterates over all servers known to the DB (via `season_service.get_all_server_ids()` or equivalent)
+- [ ] For each server: calls `check_and_schedule_season_end(server_id, bot)` (reuses existing helper)
+- [ ] If `all_phases_complete()` is True and `fire_at` is in the past: calls `execute_season_end` directly (no scheduling)
+- [ ] If `all_phases_complete()` is True and `fire_at` is in the future: schedules the job as normal
+- [ ] If `all_phases_complete()` is False: no-op for that server
+- [ ] New `SeasonService` method: `get_all_server_ids()` (or equivalent query to list all distinct `server_id` values with an active season)
+- [ ] New tests: `test_startup_recovery_schedules_future_job`, `test_startup_recovery_fires_immediately_when_past`, `test_startup_recovery_noop_when_phases_incomplete`
+- [ ] All tests passing
+
+**Status**: [ ]
+
+---
+
+## Progress Summary (updated)
+
+| Phase | Tasks | Status |
+|-------|-------|--------|
+| 1 — Setup | T001–T003 | ✅ Complete |
+| 2 — Data model & service | T004, T005 | ✅ Complete |
+| 3 — Command layer | T006–T009 | ✅ Complete |
+| 4 — Documentation & polish | T010, T011 | ✅ Complete |
+| 5 — Validation | T012, T013 | ✅ Complete |
+| 6 — Bot reset command | T014–T019 | ✅ Complete |
+| 7 — Correctness fixes | T020–T027 | ✅ Complete |
+| 8 — Startup recovery | T028 | ��� Not started |
