@@ -1,115 +1,96 @@
-# Feature Specification: [FEATURE NAME]
+# Feature Specification: Track ID Autocomplete & Division Command Cleanup
 
-**Feature Branch**: `[###-feature-name]`  
-**Created**: [DATE]  
+**Feature Branch**: `003-track-id-autocomplete`  
+**Created**: 2026-03-04  
 **Status**: Draft  
-**Input**: User description: "$ARGUMENTS"
+**Input**: User description: "Remove race_day and race_time from division-add command, add numeric track ID autocomplete to round-add and round-amend, and document all command parameters in README"
 
 ## User Scenarios & Testing *(mandatory)*
 
-<!--
-  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
-  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
-  you should still have a viable MVP (Minimum Viable Product) that delivers value.
-  
-  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
-  Think of each story as a standalone slice of functionality that can be:
-  - Developed independently
-  - Tested independently
-  - Deployed independently
-  - Demonstrated to users independently
--->
+### User Story 1 — Division setup no longer asks for race day/time (Priority: P1)
 
-### User Story 1 - [Brief Title] (Priority: P1)
+An admin configuring a new season runs `/division-add`. Currently the command asks for `race_day` (0–6 integer) and `race_time` (HH:MM string). These inputs are confusing because the round's date and time are already provided via `/round-add`'s `scheduled_at` parameter — duplicating them on the division level is redundant and error-prone.
 
-[Describe this user journey in plain language]
+**Why this priority**: Directly reduces setup friction and removes a source of inconsistency in the data model. Affects every new season configuration.
 
-**Why this priority**: [Explain the value and why it has this priority level]
-
-**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
+**Independent Test**: Run `/division-add` with only `name`, `role`, and `forecast_channel`. The division must be created successfully and the pending config must reflect only those three fields.
 
 **Acceptance Scenarios**:
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-2. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **Given** a pending season setup, **When** `/division-add` is called with `name`, `role`, and `forecast_channel`, **Then** the division is accepted without `race_day` or `race_time` and the success message shows only the division name and channel.
+2. **Given** a pending season setup, **When** `/division-add` is called with extra `race_day`/`race_time` arguments, **Then** Discord rejects the command at the slash-command parameter level (parameters no longer exist in the schema).
+3. **Given** an approved season, **When** the database is inspected, **Then** the `divisions` table contains no `race_day` or `race_time` columns.
 
 ---
 
-### User Story 2 - [Brief Title] (Priority: P2)
+### User Story 2 — Track selection via ID autocomplete dropdown (Priority: P1)
 
-[Describe this user journey in plain language]
+An admin adding a round with `/round-add` must type the exact track name (e.g., `"United Kingdom"`). Typos silently produce an error after Discord sends the command. Discord's autocomplete mechanism can present a filtered pick-list instead, guiding the user to a valid value before submission.
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**Why this priority**: Eliminates the largest source of input errors during season configuration. Track names with spaces or ambiguous spellings (e.g., `"Texas"` vs `"Austin"`) are typo-prone.
 
-**Independent Test**: [Describe how this can be tested independently]
+**Independent Test**: Use `/round-add` and start typing a number or partial name in the `track` field. A dropdown of `ID – Name` choices must appear and filtering must work. Selecting one must populate the `track` field with the canonical track name.
 
 **Acceptance Scenarios**:
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **Given** a `/round-add` command is being filled, **When** the user types a number (e.g., `"27"`) in the `track` field, **Then** the autocomplete shows `27 – United Kingdom` as a matching option.
+2. **Given** a `/round-add` command is being filled, **When** the user types a partial name (e.g., `"bah"`), **Then** the autocomplete shows `05 – Bahrain`.
+3. **Given** a `/round-add` command is submitted with a valid autocomplete selection, **Then** the round is created with the correct canonical track name stored in the database.
+4. **Given** a `/round-amend` command is being filled, **When** the user types in the `track` field, **Then** the same autocomplete dropdown appears and behaves identically.
+5. **Given** a `/round-add` command is submitted with a bare numeric ID (e.g., `"5"`), **Then** the bot resolves it to the canonical name and creates the round successfully (fallback for manual input).
 
 ---
 
-### User Story 3 - [Brief Title] (Priority: P3)
+### User Story 3 — README documents all command parameters (Priority: P2)
 
-[Describe this user journey in plain language]
+A new server admin reads the README to understand how to set up the bot. The current README lists commands in a sparse table with no detail about accepted parameters. They cannot configure a season without referring to the source code.
 
-**Why this priority**: [Explain the value and why it has this priority level]
+**Why this priority**: Documentation is additive value that does not affect runtime behaviour and can be deferred if needed; the command changes above are more critical.
 
-**Independent Test**: [Describe how this can be tested independently]
+**Independent Test**: A reader with no prior knowledge of the bot can, using only the README, successfully understand which parameters to pass to each command and what each does.
 
 **Acceptance Scenarios**:
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **Given** a reader on the README, **When** they look up `/division-add`, **Then** they see every parameter, its type, whether it is required, and a description.
+2. **Given** a reader on the README, **When** they look up `/round-add`, **Then** the `track` parameter entry explains the ID autocomplete and links to the track ID table.
+3. **Given** a reader on the README, **When** they look up the track ID table, **Then** all 27 circuit IDs are listed with their canonical names.
 
 ---
-
-[Add more user stories as needed, each with an assigned priority]
 
 ### Edge Cases
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
--->
-
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+- What happens when a user types a track ID that does not correspond to any circuit (e.g., `"99"`)? → The ID lookup returns no match; the canonical-name validation then catches it and returns a descriptive error.
+- What happens when autocomplete returns a value but the bot's track registry has drifted? → The canonical name is re-validated server-side on submission; it cannot be bypassed via autocomplete.
+- What happens to existing `bot.db` databases that still have `race_day`/`race_time` columns in `divisions`? → Migration 003 drops those columns; it runs automatically on next bot startup.
 
 ## Requirements *(mandatory)*
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right functional requirements.
--->
-
 ### Functional Requirements
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]  
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+- **FR-001**: The `/division-add` command MUST NOT include `race_day` or `race_time` parameters.
+- **FR-002**: The `divisions` table MUST NOT contain `race_day` or `race_time` columns after migration 003 is applied.
+- **FR-003**: The `track` parameter of `/round-add` MUST offer a Discord autocomplete dropdown showing all 27 circuits as `ID – Name` entries.
+- **FR-004**: The `track` parameter of `/round-amend` MUST offer the same Discord autocomplete dropdown.
+- **FR-005**: Autocomplete results MUST be filtered in real time to entries whose `ID – Name` label contains the user's current input (case-insensitive substring match).
+- **FR-006**: Both `/round-add` and `/round-amend` MUST resolve a bare numeric ID (e.g., `"5"` or `"05"`) to its canonical track name before validation when the user types manually without using the dropdown.
+- **FR-007**: Track validation MUST remain server-side; a track value that does not resolve to a known circuit MUST be rejected with a descriptive error.
+- **FR-008**: The README MUST document every slash command with a parameter table listing name, type, required/optional, and description.
+- **FR-009**: The README MUST include a track ID quick-reference table listing all 27 circuit IDs.
+- **FR-010**: The bot startup error caused by `cog_`/`bot_`-prefixed method names MUST be resolved (rename `bot_init` → `handle_bot_init`).
 
-*Example of marking unclear requirements:*
+### Key Entities
 
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
-
-### Key Entities *(include if feature involves data)*
-
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
+- **TRACK_IDS**: An ordered mapping of zero-padded two-digit string IDs (`"01"`–`"27"`) to canonical track names. Defined in `src/models/track.py` alongside existing `TRACKS`.
+- **PendingDivision**: In-memory dataclass used during season setup. Removes `race_day` and `race_time` fields.
+- **Division** (DB model): Removes `race_day: int` and `race_time: str` fields.
 
 ## Success Criteria *(mandatory)*
 
-<!--
-  ACTION REQUIRED: Define measurable success criteria.
-  These must be technology-agnostic and measurable.
--->
-
 ### Measurable Outcomes
 
-- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
-- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
+- **SC-001**: `/division-add` accepts exactly three user-supplied parameters (`name`, `role`, `forecast_channel`) — no more, no fewer.
+- **SC-002**: Typing any digit 1–27 in the `/round-add` or `/round-amend` `track` field returns at least one autocomplete suggestion.
+- **SC-003**: Typing a partial track name (minimum 2 characters) in the `track` field returns at least one matching autocomplete suggestion.
+- **SC-004**: All 45 existing tests continue to pass after the migration and model changes.
+- **SC-005**: The README contains a parameter table for every one of the 9 slash commands (including the 3 test-mode subcommands).
+- **SC-006**: The bot starts without errors (`python src/bot.py` exits cleanly and logs "All cogs loaded").
