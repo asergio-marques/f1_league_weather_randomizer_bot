@@ -7,7 +7,7 @@
 
 Two targeted improvements to the season-setup flow:
 
-1. **`/round-amend` on pending configs** — today `/round-amend` only works against an approved (ACTIVE) season in the database. Extending it to also target the not-yet-approved in-memory `PendingConfig` lets any `@admin_only` server admin correct a round's track, datetime, or format before the season is committed. No DB write occurs; no phase-invalidation runs.
+1. **`/round-amend` on pending configs** — today `/round-amend` only works against an approved (ACTIVE) season in the database. Extending it to also target the not-yet-approved in-memory `PendingConfig` lets any `@admin_only` server admin correct a round's track, datetime, or format before the season is committed. After the in-memory update the full pending config is immediately snapshotted to the DB (status=SETUP) for crash safety; no phase-invalidation runs.
 
 2. **Duplicate round-number guard for `/round-add`** — today the bot silently appends a second round with the same number into the same division. Instead, on detecting a conflict the bot presents an ephemeral Discord button prompt offering four resolutions: **Insert Before** (shift existing ≥N up by 1), **Insert After** (shift existing >N up by 1), **Replace** (swap out the conflicting round), or **Cancel** (no change). The prompt times out after 60 seconds with no modification.
 
@@ -15,7 +15,7 @@ Two targeted improvements to the season-setup flow:
 
 **Language/Version**: Python 3.13.2 (targets 3.8+)
 **Primary Dependencies**: discord.py 2.7.1 (`discord.ui.View`, `discord.ui.Button`), aiosqlite ≥ 0.19, APScheduler ≥ 3.10
-**Storage**: SQLite via aiosqlite; no schema changes (both user stories operate on in-memory `PendingConfig` only)
+**Storage**: SQLite via aiosqlite; no schema changes required — the `SETUP` season status already exists. After every pending-config mutation the full config is snapshotted to the DB as a `SETUP`-status season and restored into memory on startup.
 **Testing**: pytest 9.0.2 + pytest-asyncio (`asyncio_mode = auto`)
 **Target Platform**: Windows/Linux server running Python 3.8+
 **Project Type**: Discord bot (slash commands)
@@ -56,8 +56,16 @@ specs/004-round-add-amend/
 ```text
 src/
 ├── cogs/
-│   ├── season_cog.py        # /round-add: duplicate-round guard + DuplicateRoundView
-│   └── amendment_cog.py     # /round-amend: pending-config lookup path (US1)
+│   ├── season_cog.py        # /round-add: duplicate guard + date ordering + DuplicateRoundView;
+│   │                        # PendingConfig.season_id; _snapshot_pending(); recover_pending_setups();
+│   │                        # _do_approve(): load from DB, schedule-before-transition
+│   └── amendment_cog.py     # /round-amend: pending-config lookup path + DB snapshot (US1)
+├── services/
+│   ├── season_service.py    # has_active_or_completed_season(); save_pending_snapshot();
+│   │                        # load_all_setup_seasons()
+│   └── scheduler_service.py # _GLOBAL_SERVICE sentinel + _phase_job module-level callable
+│                            #   (fixes APScheduler SQLAlchemyJobStore pickle error)
+└── bot.py                   # _recover_pending_setups() + on_ready call
 
 tests/
 └── unit/
@@ -108,7 +116,7 @@ tests/
 
 ### Data model
 
-No database schema changes. Both user stories operate entirely on the in-memory `PendingConfig.divisions[*].rounds` list.
+No database schema changes — the `SETUP` status value already exists in the `seasons` table. After every pending-config mutation the full config is written to the DB as a `SETUP`-status season via `save_pending_snapshot()`, and restored into memory on startup via `load_all_setup_seasons()`. `PendingConfig` gains a `season_id: int = 0` field populated after the first snapshot.
 
 **Round dict schema** (unchanged):
 
@@ -138,7 +146,7 @@ These helpers live in `season_cog.py` (module-level functions).
 
 ### Contracts
 
-No external contracts — both user stories affect only in-memory state. The DB-facing interface (`/season-approve`) is unchanged.
+No external API/command-schema contracts change. The DB-facing interface (`/season-approve`) is updated internally: it loads divisions and rounds from the already-persisted SETUP season (via `cfg.season_id`), schedules all rounds with APScheduler first, then calls `transition_to_active`. A scheduling failure leaves the season in SETUP status (FR-016).
 
 ### `/round-amend` pending-path flow
 
@@ -153,7 +161,8 @@ AmendmentCog.round_amend()
   │           validate + apply field changes in-memory
   │           if format → MYSTERY: clear track_name
   │           if format ← MYSTERY with no track provided and existing track empty: reject
-  │           no phase-invalidation; no DB write
+  │           no phase-invalidation
+  │           save_pending_snapshot() → update pending_cfg.season_id   (FR-002, FR-014)
   │           respond ephemeral ✅
   └─ No → existing active-season DB path (unchanged)
 ```
@@ -162,21 +171,36 @@ AmendmentCog.round_amend()
 
 ```
 SeasonCog.round_add()
+  ├─ cfg lookup: _pending.get(user_id) or _get_pending_for_server(guild_id)
   ├─ [existing validation: format, track, datetime, division lookup]
+  ├─ date ordering check (FR-015):
+  │     earlier_rounds = [r for r in div.rounds if r["round_number"] < round_number]
+  │     later_rounds   = [r for r in div.rounds if r["round_number"] > round_number]
+  │     if sched < max(earlier scheduled_at) → error naming offending round
+  │     if sched > min(later  scheduled_at)  → error naming offending round
   ├─ conflict = next((r for r in div.rounds if r["round_number"] == round_number), None)
   ├─ conflict is None?
-  │     Yes → append and respond ✅  (unchanged path)
-  └─ No  → build DuplicateRoundView(div, new_round_data)
+  │     Yes → append; _snapshot_pending(cfg); respond ✅
+  └─ No  → build DuplicateRoundView(div, new_round_data, post_mutation_cb=_snapshot_cb)
             await interaction.response.send_message(embed, view=view, ephemeral=True)
             view.message = await interaction.original_response()
             (view handles all mutations asynchronously via button callbacks)
 
 DuplicateRoundView callbacks:
-  insert_before_cb → apply insert_before(); disable buttons; edit message ✅
-  insert_after_cb  → apply insert_after();  disable buttons; edit message ✅
-  replace_cb       → apply replace();       disable buttons; edit message ✅
+  insert_before_cb → apply insert_before(); post_mutation_cb(); disable buttons; edit message ✅
+  insert_after_cb  → apply insert_after();  post_mutation_cb(); disable buttons; edit message ✅
+  replace_cb       → apply replace();       post_mutation_cb(); disable buttons; edit message ✅
   cancel_cb        → no change;             disable buttons; edit message ❌ cancelled
   on_timeout       → no change;             disable buttons; edit message ⏱ timed out
+
+SeasonCog._do_approve()  (FR-016)
+  ├─ cfg lookup: _pending.get(user_id) or _get_pending_for_server(guild_id)
+  ├─ guard: cfg.season_id == 0 → error (setup incomplete)
+  ├─ load divisions + rounds from DB using cfg.season_id
+  ├─ create sessions for each round
+  ├─ schedule_all_rounds(all_rounds)     ← FIRST (failure leaves season in SETUP)
+  ├─ transition_to_active(cfg.season_id) ← only after scheduling succeeds
+  └─ clear all _pending entries for this server; respond ✅
 ```
 
 ### Agent context update
@@ -193,6 +217,6 @@ DuplicateRoundView callbacks:
 | II — Multi-Division Isolation | ✅ PASS | All mutations scoped to a single division object; no cross-division reads. |
 | III — Resilient Schedule Management | ✅ PASS | Pending amendments are corrections before any schedule is committed; no invalidation needed. |
 | IV — Three-Phase Weather Pipeline | ✅ PASS | No phase services involved. |
-| V — Observability & Change Audit Trail | ✅ PASS | Audit trail written at `/season-approve` time, unchanged. |
-| VI — Simplicity & Focused Scope | ✅ PASS | `DuplicateRoundView` is self-contained; no new commands added. |
+| V — Observability & Change Audit Trail | ✅ PASS | Pending-config mutations now write to DB immediately (SETUP status) providing a crash-recovery record; final audit trail still written at `transition_to_active`. |
+| VI — Simplicity & Focused Scope | ✅ PASS | `DuplicateRoundView` is self-contained; persistence reuses existing SETUP season infrastructure. No new commands added. |
 | VII — Output Channel Discipline | ✅ PASS | All responses ephemeral; no new channel output. |
