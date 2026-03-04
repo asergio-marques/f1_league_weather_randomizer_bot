@@ -1,6 +1,7 @@
 # F1 League Weather Randomizer Bot
 
 A Discord bot for F1 league racing servers that delivers an automated, three-phase weather generation pipeline for every race round.
+Made using GitHub Copilot Spec Kit and Claude as an experiment.
 
 ---
 
