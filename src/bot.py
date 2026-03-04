@@ -78,6 +78,9 @@ async def main() -> None:
         # Recover any missed phases from before bot restart
         await _recover_missed_phases(bot)
 
+        # Recover any season-end jobs that were lost during a restart
+        await _recover_season_end_jobs(bot)
+
         # Sync slash commands globally (may take up to 1 hour to propagate)
         try:
             synced = await bot.tree.sync()
@@ -151,6 +154,22 @@ async def _recover_missed_phases(bot: commands.Bot) -> None:
         if not p3 and now >= phase3_horizon:
             log.info("Recovery: firing Phase 3 for round %s", round_id)
             await run_phase3(round_id, bot)
+
+
+async def _recover_season_end_jobs(bot: commands.Bot) -> None:
+    """Re-register season-end APScheduler jobs lost during a process restart.
+
+    For each server with an ACTIVE season where all non-Mystery rounds are
+    complete, compute the fire time (last scheduled_at + 7 days) and either:
+    - schedule the job normally if the fire time is in the future, or
+    - call execute_season_end immediately if the fire time is already past.
+    """
+    from services.season_end_service import check_and_schedule_season_end
+
+    server_ids = await bot.season_service.get_all_server_ids_with_active_season()  # type: ignore[attr-defined]
+    for server_id in server_ids:
+        log.info("Startup recovery: checking season-end status for server %s", server_id)
+        await check_and_schedule_season_end(server_id, bot)
 
 
 if __name__ == "__main__":

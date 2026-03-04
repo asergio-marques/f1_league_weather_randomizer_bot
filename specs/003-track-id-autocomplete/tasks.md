@@ -360,10 +360,10 @@
 
 **Independent Test** (SC-015): Restart the bot after a season’s last Phase 3 has completed. The `season_end_{server_id}` APScheduler job must be present and scheduled; a bot that was down beyond the 7-day window must execute `execute_season_end` immediately on startup.
 
-- [ ] T028 [P] Add `get_all_server_ids_with_active_season()` async method to `src/services/season_service.py` — SELECT DISTINCT server_id FROM seasons WHERE status = 'ACTIVE'
-- [ ] T029 [P] Update `check_and_schedule_season_end()` in `src/services/season_end_service.py` to accept an optional `now` override and add the past-fire_at branch: if `now >= fire_at` call `execute_season_end` directly instead of scheduling
-- [ ] T030 Add startup recovery loop to `on_ready` in `src/bot.py` — iterate `get_all_server_ids_with_active_season()` and call `check_and_schedule_season_end(server_id, bot)` for each (depends on T028, T029)
-- [ ] T031 [P] Write 3 startup recovery tests in `tests/unit/test_season_end_service.py`: `test_startup_recovery_schedules_future_job`, `test_startup_recovery_fires_immediately_when_past`, `test_startup_recovery_noop_when_phases_incomplete` (depends on T028, T029)
+- [X] T028 [P] Add `get_all_server_ids_with_active_season()` async method to `src/services/season_service.py` — SELECT DISTINCT server_id FROM seasons WHERE status = 'ACTIVE'
+- [X] T029 [P] Update `check_and_schedule_season_end()` in `src/services/season_end_service.py` to accept an optional `now` override and add the past-fire_at branch: if `now >= fire_at` call `execute_season_end` directly instead of scheduling
+- [X] T030 Add startup recovery loop to `on_ready` in `src/bot.py` — iterate `get_all_server_ids_with_active_season()` and call `check_and_schedule_season_end(server_id, bot)` for each (depends on T028, T029)
+- [X] T031 [P] Write 3 startup recovery tests in `tests/unit/test_season_end_service.py`: `test_startup_recovery_schedules_future_job`, `test_startup_recovery_fires_immediately_when_past`, `test_startup_recovery_noop_when_phases_incomplete` (depends on T028, T029)
 
 ---
 
@@ -378,4 +378,4 @@
 | 5 — Validation | T012, T013 | ✅ Complete |
 | 6 — Bot reset command | T014–T019 | ✅ Complete |
 | 7 — Correctness fixes | T020–T027 | ✅ Complete |
-| 8 — Startup recovery | T028–T031 | 🟢 Not started |
+| 8 — Startup recovery | T028–T031 | ✅ Complete |

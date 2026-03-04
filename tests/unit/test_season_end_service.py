@@ -316,3 +316,86 @@ async def test_execute_season_end_cancels_season_end_job() -> None:
         assert 1 in bot.scheduler_service.season_end_cancelled
     finally:
         os.unlink(db_path)
+
+
+# ---------------------------------------------------------------------------
+# Startup recovery tests (FR-025)
+# ---------------------------------------------------------------------------
+
+async def test_startup_recovery_schedules_future_job() -> None:
+    """When all phases are complete and fire_at is in the future, job is scheduled."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+    try:
+        await run_migrations(db_path)
+        _, round_ids = await _seed_server(db_path, server_id=1)
+        await _mark_all_phases_done(db_path, round_ids)
+        bot = _FakeBot(db_path)
+        # now = day before fire_at (2026-05-08), so job should be scheduled
+        now = datetime(2026, 5, 7, 12, 0, 0, tzinfo=timezone.utc)
+        await check_and_schedule_season_end(1, bot, now=now)
+        assert len(bot.scheduler_service.season_end_scheduled) == 1
+        _, fire_at, _ = bot.scheduler_service.season_end_scheduled[0]
+        # fire_at = last_round.scheduled_at (2026-05-01) + 7 days = 2026-05-08
+        assert fire_at.year == 2026 and fire_at.month == 5 and fire_at.day == 8
+    finally:
+        os.unlink(db_path)
+
+
+async def test_startup_recovery_fires_immediately_when_past() -> None:
+    """When fire_at is already in the past, execute_season_end runs directly."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+    try:
+        await run_migrations(db_path)
+        _, round_ids = await _seed_server(db_path, server_id=1)
+        await _mark_all_phases_done(db_path, round_ids)
+        bot = _FakeBot(db_path)
+        # now = day after fire_at (2026-05-08), so season end fires immediately
+        now = datetime(2026, 5, 9, 12, 0, 0, tzinfo=timezone.utc)
+        await check_and_schedule_season_end(1, bot, now=now)
+        # No job scheduled — executed directly instead
+        assert len(bot.scheduler_service.season_end_scheduled) == 0
+        # Season data deleted immediately
+        svc = SeasonService(db_path)
+        assert await svc.get_active_season(1) is None
+    finally:
+        os.unlink(db_path)
+
+
+async def test_startup_recovery_noop_when_phases_incomplete() -> None:
+    """When not all phases are done, no job is scheduled and no deletion occurs."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+    try:
+        await run_migrations(db_path)
+        _, _round_ids = await _seed_server(db_path, server_id=1)
+        # Deliberately do NOT mark phases done
+        bot = _FakeBot(db_path)
+        now = datetime(2026, 5, 9, 12, 0, 0, tzinfo=timezone.utc)
+        await check_and_schedule_season_end(1, bot, now=now)
+        assert len(bot.scheduler_service.season_end_scheduled) == 0
+        svc = SeasonService(db_path)
+        assert await svc.get_active_season(1) is not None
+    finally:
+        os.unlink(db_path)
+
+
+async def test_get_all_server_ids_with_active_season() -> None:
+    """Returns only server_ids with ACTIVE seasons; excludes servers with none."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+    try:
+        await run_migrations(db_path)
+        # Seed two servers
+        await _seed_server(db_path, server_id=1)
+        await _seed_server(db_path, server_id=2)
+        svc = SeasonService(db_path)
+        ids = await svc.get_all_server_ids_with_active_season()
+        assert set(ids) == {1, 2}
+        # A server with no season row is not included
+        ids_no_99 = [i for i in ids if i != 99]
+        assert 99 not in ids_no_99
+    finally:
+        os.unlink(db_path)
+

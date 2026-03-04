@@ -99,6 +99,15 @@ class SeasonService:
             row = await cursor.fetchone()
         return row is not None and row[0] == 0
 
+    async def get_all_server_ids_with_active_season(self) -> list[int]:
+        """Return all server_ids that currently have an ACTIVE season row."""
+        async with get_connection(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT DISTINCT server_id FROM seasons WHERE status = 'ACTIVE'"
+            )
+            rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
     async def transition_to_active(self, season_id: int) -> None:
         """Set season status to ACTIVE."""
         async with get_connection(self._db_path) as db:

@@ -16,7 +16,7 @@ execute_season_end(server_id, season_id, bot)
 from __future__ import annotations
 
 import logging
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,8 +25,18 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-async def check_and_schedule_season_end(server_id: int, bot: "Bot") -> None:
+async def check_and_schedule_season_end(
+    server_id: int,
+    bot: "Bot",
+    *,
+    now: datetime | None = None,
+) -> None:
     """Schedule season end if all non-Mystery rounds are fully phased.
+
+    If *now* is provided it is used instead of the real wall-clock time (useful
+    for testing and for the startup recovery path).  When the computed fire time
+    is already in the past (``now >= fire_at``), ``execute_season_end`` is
+    called directly instead of scheduling a future job.
 
     Safe to call multiple times — ``replace_existing=True`` in the scheduler
     means a duplicate call simply refreshes the job's fire time.
@@ -53,6 +63,21 @@ async def check_and_schedule_season_end(server_id: int, bot: "Bot") -> None:
     fire_at = last_at + timedelta(days=7)
 
     season_id_captured = season.id
+    effective_now = now if now is not None else datetime.now(tz=timezone.utc)
+    if effective_now.tzinfo is None:
+        effective_now = effective_now.replace(tzinfo=timezone.utc)
+
+    if effective_now >= fire_at:
+        # Due date already passed (e.g. bot was down for >7 days); fire now.
+        log.warning(
+            "Season end for server %s (season %s) is overdue (fire_at=%s); "
+            "executing immediately.",
+            server_id,
+            season_id_captured,
+            fire_at.isoformat(),
+        )
+        await execute_season_end(server_id, season_id_captured, bot)
+        return
 
     async def _cb() -> None:
         await execute_season_end(server_id, season_id_captured, bot)
