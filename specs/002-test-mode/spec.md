@@ -5,6 +5,12 @@
 **Status**: Draft  
 **Input**: User description: "Add a test mode to allow system testing of the bot in Discord without waiting for phase triggers, with commands to enable test mode and advance through scheduled phases"
 
+## Clarifications
+
+### Session 2026-03-04
+
+- Q: Should the configured round dates and times affect phase eligibility or ordering when in test mode? → A: Configured dates and times are ignored entirely in test mode. The user is still required to input them (for production scheduler use), but they impose no restrictions on phase advancement; any pending phase may be advanced at any time regardless of whether its real-world trigger horizon has been reached.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Toggle Test Mode (Priority: P1)
@@ -87,10 +93,12 @@ A user with the configured interaction role, while test mode is active, issues a
 - **FR-012**: Mystery rounds MUST be listed in the review summary with a clear indication that their phases do not apply.
 - **FR-013**: Both the advance-phase and review commands MUST be silently ignored when test mode is not active.
 - **FR-014**: The advance-phase and review commands MUST be subject to the same role and channel access restrictions as all other bot commands.
+- **FR-015**: When in test mode, configured round dates and times MUST be ignored for the purpose of phase eligibility. Any pending phase may be advanced immediately regardless of whether its real-world trigger horizon (T−5 days, T−2 days, T−2 hours) has been reached. Round dates and times are used only to determine the ordering of the phase advancement queue.
 
 ### Assumptions
 
 - Test mode operates on the same season configuration used for normal production operation; it does not create or require a separate "test season."
+- Dates and times configured for rounds are required inputs (needed for the production scheduler) but are entirely ignored for phase eligibility when in test mode. They are used only to determine queue ordering (earlier `scheduled_at` = higher priority in the queue).
 - Disabling test mode while phases remain pending does not undo the phases already executed; those remain recorded. Pending phases revert to waiting for their real scheduled trigger times.
 - When multiple divisions have a round scheduled at the exact same date and time, divisions are advanced in the order they were configured (first-configured first).
 - Enabling test mode does not pause or cancel the real scheduler; if test mode is disabled, the scheduler continues normally and may still trigger real phases for rounds not yet executed.

@@ -19,7 +19,7 @@
 
 **Purpose**: Create the DB migration that is a prerequisite for everything else.
 
-- [ ] T001 Create DB migration file `src/db/migrations/002_test_mode.sql` that adds `test_mode_active INTEGER NOT NULL DEFAULT 0` to `server_configs`
+- [X] T001 Create DB migration file `src/db/migrations/002_test_mode.sql` that adds `test_mode_active INTEGER NOT NULL DEFAULT 0` to `server_configs`
 
 ---
 
@@ -29,8 +29,8 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 [P] Add `test_mode_active: bool = False` field to `ServerConfig` dataclass in `src/models/server_config.py`
-- [ ] T003 [P] Update `get_server_config` and `save_server_config` in `src/services/config_service.py` to read and write `test_mode_active`
+- [X] T002 [P] Add `test_mode_active: bool = False` field to `ServerConfig` dataclass in `src/models/server_config.py`
+- [X] T003 [P] Update `get_server_config` and `save_server_config` in `src/services/config_service.py` to read and write `test_mode_active`
 
 **Checkpoint**: Foundation ready — user story implementation can now begin.
 
@@ -42,9 +42,9 @@
 
 **Independent Test**: Issue `/test-mode toggle` → bot confirms enabled. Issue it again → bot confirms disabled. Restart the bot → run `/test-mode review` and verify it is still in the same state as before restart.
 
-- [ ] T004 [P] [US1] Create `src/services/test_mode_service.py` with `toggle_test_mode(server_id, db_path) -> bool` async function that flips `test_mode_active` in `server_configs` and returns the new value
-- [ ] T005 [US1] Create `src/cogs/test_mode_cog.py` with a `/test-mode` command group and a `toggle` subcommand decorated with `@channel_guard`; respond ephemerally with enabled/disabled confirmation
-- [ ] T006 [US1] Load `TestModeCog` in `src/bot.py` alongside the existing cogs
+- [X] T004 [P] [US1] Create `src/services/test_mode_service.py` with `toggle_test_mode(server_id, db_path) -> bool` async function that flips `test_mode_active` in `server_configs` and returns the new value
+- [X] T005 [US1] Create `src/cogs/test_mode_cog.py` with a `/test-mode` command group and a `toggle` subcommand decorated with `@channel_guard`; respond ephemerally with enabled/disabled confirmation
+- [X] T006 [US1] Load `TestModeCog` in `src/bot.py` alongside the existing cogs
 
 **Checkpoint**: User Story 1 is fully functional and independently testable.
 
@@ -56,8 +56,8 @@
 
 **Independent Test**: With test mode active and a season configured, issue `/test-mode advance` repeatedly. Verify Phase 1 → Phase 2 → Phase 3 outputs are posted per round per division in `scheduled_at` order. Verify Mystery rounds are skipped. Verify a "nothing left" message appears after all phases are exhausted.
 
-- [ ] T007 [US2] Add `get_next_pending_phase(server_id, db_path) -> dict | None` async function to `src/services/test_mode_service.py`; query returns the earliest pending `(round_id, phase_number, division_id, track_name, division_name)` tuple by sorting on `rounds.scheduled_at ASC, divisions.id ASC`; excludes Mystery rounds and already-done phases; returns `None` when all phases are complete
-- [ ] T008 [US2] Add `advance` subcommand to `src/cogs/test_mode_cog.py`; guard silently if test mode inactive; call `get_next_pending_phase`, then dispatch to `run_phase1/2/3` from the appropriate service, then respond ephemerally confirming which phase/round/division was advanced (or "all phases complete" if `None`)
+- [X] T007 [US2] Add `get_next_pending_phase(server_id, db_path) -> dict | None` async function to `src/services/test_mode_service.py`; query returns the earliest pending `(round_id, phase_number, division_id, track_name, division_name)` tuple by sorting on `rounds.scheduled_at ASC, divisions.id ASC`; excludes Mystery rounds and already-done phases; returns `None` when all phases are complete
+- [X] T008 [US2] Add `advance` subcommand to `src/cogs/test_mode_cog.py`; guard silently if test mode inactive; call `get_next_pending_phase`, then dispatch to `run_phase1/2/3` from the appropriate service, then respond ephemerally confirming which phase/round/division was advanced (or "all phases complete" if `None`)
 
 **Checkpoint**: User Stories 1 and 2 are both fully functional and independently testable.
 
@@ -69,8 +69,8 @@
 
 **Independent Test**: With test mode active, after advancing some phases, issue `/test-mode review`. Verify all configured rounds appear, completed phases show ✅, pending phases show ⏳, and Mystery rounds show N/A.
 
-- [ ] T009 [US3] Add `build_review_summary(server_id, db_path) -> str` async function to `src/services/test_mode_service.py`; query all divisions and rounds for the active season on this server; return a formatted string grouped by division, each round showing format, track, `scheduled_at` date, and `P1/P2/P3` completion indicators; Mystery rounds display `Phases N/A`
-- [ ] T010 [US3] Add `review` subcommand to `src/cogs/test_mode_cog.py`; guard silently if test mode inactive; call `build_review_summary` and post the result as an ephemeral response
+- [X] T009 [US3] Add `build_review_summary(server_id, db_path) -> str` async function to `src/services/test_mode_service.py`; query all divisions and rounds for the active season on this server; return a formatted string grouped by division, each round showing format, track, `scheduled_at` date, and `P1/P2/P3` completion indicators; Mystery rounds display `Phases N/A`
+- [X] T010 [US3] Add `review` subcommand to `src/cogs/test_mode_cog.py`; guard silently if test mode inactive; call `build_review_summary` and post the result as an ephemeral response
 
 **Checkpoint**: All three user stories are fully functional and independently testable.
 
@@ -80,9 +80,9 @@
 
 **Purpose**: Robustness, edge case coverage, and end-to-end validation.
 
-- [ ] T011 [P] Add unit tests for `get_next_pending_phase` ordering logic in `tests/unit/test_test_mode_service.py`; cover: empty queue returns `None`, Mystery rounds excluded, cross-division `scheduled_at` tie-break by `division.id`, phase-number ordering within a round
-- [ ] T012 Add edge case guards to `src/services/test_mode_service.py`: no active season → `advance`/`review` return an informative `None`/empty result; concurrent advance safety via `phase_done` idempotency already present in phase services (document this behaviour with a comment)
-- [ ] T013 Validate the complete end-to-end `quickstart.md` walkthrough (enable test mode, 2 divisions × 2 rounds, advance all 12 phases, review, disable)
+- [X] T011 [P] Add unit tests for `get_next_pending_phase` ordering logic in `tests/unit/test_test_mode_service.py`; cover: empty queue returns `None`, Mystery rounds excluded, cross-division `scheduled_at` tie-break by `division.id`, phase-number ordering within a round
+- [X] T012 Add edge case guards to `src/services/test_mode_service.py`: no active season → `advance`/`review` return an informative `None`/empty result; concurrent advance safety via `phase_done` idempotency already present in phase services (document this behaviour with a comment)
+- [X] T013 Validate the complete end-to-end `quickstart.md` walkthrough (enable test mode, 2 divisions × 2 rounds, advance all 12 phases, review, disable)
 
 ---
 

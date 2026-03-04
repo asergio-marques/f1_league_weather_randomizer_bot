@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -11,3 +11,4 @@ class ServerConfig:
     interaction_role_id: int
     interaction_channel_id: int
     log_channel_id: int
+    test_mode_active: bool = field(default=False)
