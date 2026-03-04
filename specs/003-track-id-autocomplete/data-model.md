@@ -88,3 +88,50 @@ A new constant alongside the existing `TRACKS` dict. No DB table required.
 ## State Transitions
 
 No new lifecycle states. The `PendingDivision` in-memory dataclass (used during `/season-setup` flow) loses `race_day` and `race_time` fields but otherwise participates in the same `SETUP → ACTIVE` season lifecycle as before.
+
+
+---
+
+## Addendum — Bot Data Reset Command
+
+No new tables or columns are introduced by this feature. The section below documents which rows are affected by each reset mode.
+
+### Deletion Scope by Mode
+
+| Table | Partial reset (`full=False`) | Full reset (`full=True`) |
+|-------|------------------------------|--------------------------|
+| `sessions` | Deleted (rounds in scope) | Deleted |
+| `phase_results` | Deleted (rounds in scope) | Deleted |
+| `rounds` | Deleted (divisions in scope) | Deleted |
+| `divisions` | Deleted (seasons in scope) | Deleted |
+| `seasons` | Deleted (server_id match) | Deleted |
+| `audit_entries` | Deleted (server_id match) | Deleted |
+| `server_configs` | **Preserved** | **Deleted** |
+| `schema_migrations` | Not touched | Not touched |
+
+### Scoping Queries
+
+Intermediate ID sets are fetched before the transaction opens:
+
+```sql
+-- season_ids
+SELECT id FROM seasons WHERE server_id = ?;
+
+-- division_ids
+SELECT id FROM divisions WHERE season_id IN (<season_ids>);
+
+-- round_ids (also used to cancel APScheduler jobs)
+SELECT id FROM rounds WHERE division_id IN (<division_ids>);
+```
+
+### Return Value
+
+`reset_server_data()` returns a dict with integer counts:
+
+```python
+{
+    "seasons_deleted": int,
+    "divisions_deleted": int,
+    "rounds_deleted": int,
+}
+```

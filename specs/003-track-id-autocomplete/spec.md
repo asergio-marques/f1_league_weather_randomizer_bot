@@ -91,6 +91,63 @@ A new server admin reads the README to understand how to set up the bot. The cur
 - **SC-001**: `/division-add` accepts exactly three user-supplied parameters (`name`, `role`, `forecast_channel`) — no more, no fewer.
 - **SC-002**: Typing any digit 1–27 in the `/round-add` or `/round-amend` `track` field returns at least one autocomplete suggestion.
 - **SC-003**: Typing a partial track name (minimum 2 characters) in the `track` field returns at least one matching autocomplete suggestion.
-- **SC-004**: All 45 existing tests continue to pass after the migration and model changes.
-- **SC-005**: The README contains a parameter table for every one of the 9 slash commands (including the 3 test-mode subcommands).
+- **SC-004**: All existing tests continue to pass after the migration and model changes.
+- **SC-005**: The README contains a parameter table for every slash command.
 - **SC-006**: The bot starts without errors (`python src/bot.py` exits cleanly and logs "All cogs loaded").
+
+---
+
+## Addendum — Bot Data Reset Command (2026-03-04)
+
+### Clarifications
+
+- Q: Scope of the reset — entire file or server-scoped? → A: Server-scoped only; only rows belonging to the invoking server are deleted. Other guilds sharing the same `bot.db` are unaffected.
+- Q: What gets deleted — seasons only or include server config? → A: Both modes; a `full` boolean parameter selects between partial (seasons + dependents only, server config preserved) and full (everything including server config).
+- Q: Confirmation UX? → A: `confirm: str` parameter; the user must type `CONFIRM` exactly before any data is deleted.
+
+---
+
+### User Story 4 — Server admin resets all bot data for their server (Priority: P1)
+
+A server administrator needs to wipe all bot data for their Discord server — e.g., after a test run or before starting a new league season from scratch. They should not need SSH or direct filesystem access.
+
+**Why this priority**: Required for the system-testing use case (the `rm bot.db` attempt in the terminal proves it). Without this, admins must delete the file manually, which wipes all other servers.
+
+**Independent Test**: Run `/bot-reset confirm:CONFIRM full:False` on a server with an active season. All seasons, divisions, rounds, sessions, phase results, and audit entries for that server MUST be deleted; the server config row MUST remain; all APScheduler jobs for those rounds MUST be cancelled.
+
+**Acceptance Scenarios**:
+
+1. **Given** a server with an active season and config, **When** `/bot-reset confirm:CONFIRM full:False`, **Then** all season/division/round/session/phase_result/audit rows for this server are deleted, server config row is preserved, APScheduler jobs for all deleted rounds are cancelled, and the bot responds with a success ephemeral message.
+2. **Given** a server with an active season and config, **When** `/bot-reset confirm:CONFIRM full:True`, **Then** all rows including the server config row are deleted and the bot reports the server is now in a blank state requiring `/bot-init`.
+3. **Given** `/bot-reset confirm:RESET full:False` (wrong confirmation string), **Then** the command is rejected with a descriptive error and no data is modified.
+4. **Given** a server with no data at all, **When** `/bot-reset confirm:CONFIRM full:False`, **Then** the command succeeds with a "nothing to delete" response and no errors are raised.
+5. **Given** a user without `Manage Server` permission, **When** `/bot-reset`, **Then** the command is rejected before any data is touched.
+6. **Given** `/bot-reset confirm:CONFIRM full:True` on a server with active APScheduler jobs, **Then** all scheduled phase jobs for that server's rounds are cancelled before the rows are deleted.
+
+### Edge Cases (addendum)
+
+- What if the APScheduler job no longer exists when cancel is attempted (e.g., already fired)? → `cancel_round` already silently swallows missing-job errors; no additional handling needed.
+- What if the DB has foreign-key constraints enabled and deletion order is wrong? → DELETE must traverse the dependency chain from leaf to root: `sessions/phase_results → rounds → divisions → seasons → (server_configs if full)`. Audit entries reference `server_id` directly and must be deleted before `server_configs`.
+- What if a full reset is issued from the configured interaction channel? → The command uses `@admin_only` without `@channel_guard` (same pattern as `/bot-init`) so it works from any channel and remains accessible even after the config is deleted.
+
+---
+
+### Functional Requirements (addendum)
+
+- **FR-011**: The bot MUST expose a `/bot-reset` slash command restricted to users with the Discord `Manage Server` permission (using existing `@admin_only` decorator, without `@channel_guard`).
+- **FR-012**: `/bot-reset` MUST accept two parameters: `confirm: str` (required) and `full: bool` (optional, default `False`).
+- **FR-013**: If `confirm` is not exactly `"CONFIRM"` (case-sensitive), the command MUST be rejected with an error before touching any data.
+- **FR-014** *(renumbered from existing FR-014 — no conflict; existing ends at FR-010)*: When `full=False`, the command MUST delete all rows in `seasons`, `divisions`, `rounds`, `sessions`, `phase_results`, and `audit_entries` that belong to the invoking `server_id`. The `server_configs` row MUST NOT be deleted.
+- **FR-015** *(addendum)*: When `full=True`, the command MUST additionally delete the `server_configs` row for the invoking server.
+- **FR-016**: Before deleting any round rows, the command MUST cancel all APScheduler jobs associated with those rounds by calling `scheduler_service.cancel_round(round_id)` for each.
+- **FR-017**: All deletions for a single reset MUST be executed within a single database transaction; a failure at any point MUST roll back all changes.
+- **FR-018**: The command MUST respond ephemerally with a clear summary of what was deleted (number of seasons, divisions, rounds cleared) and, for full resets, a reminder to re-run `/bot-init`.
+- **FR-019**: The README MUST document `/bot-reset` with its parameter table.
+
+### Success Criteria (addendum)
+
+- **SC-007**: `/bot-reset confirm:CONFIRM full:False` on a server with 1 active season, 2 divisions, and 3 rounds per division leaves the `server_configs` row intact and all 6 rounds' APScheduler jobs cancelled.
+- **SC-008**: `/bot-reset confirm:CONFIRM full:True` removes the server's `server_configs` row; a subsequent `/season-status` returns "No active season found".
+- **SC-009**: Passing any string other than `"CONFIRM"` is rejected before execution; the DB remains unchanged.
+- **SC-010**: The reset command is inaccessible to users without `Manage Server` permission.
+

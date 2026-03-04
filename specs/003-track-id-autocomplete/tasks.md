@@ -120,3 +120,105 @@
 | 5 — Validation | T012, T013 | ✅ Complete |
 
 **All 13 tasks complete. 45/45 tests passing.**
+
+---
+
+## Phase 6 — Bot Data Reset Command (Addendum)
+
+### T014 — Create `src/services/reset_service.py`
+
+**Goal**: Implement `reset_server_data(server_id, db_path, scheduler_service, full=False) -> dict`.
+
+**Acceptance criteria**:
+- [ ] Fetches season IDs, division IDs, round IDs for the given `server_id` before opening any transaction
+- [ ] Calls `scheduler_service.cancel_round(rid)` for every round ID
+- [ ] Executes all DELETEs in a single aiosqlite transaction (FK-safe order: sessions → phase_results → rounds → divisions → seasons → audit_entries → [server_configs if full])
+- [ ] Returns `{"seasons_deleted": int, "divisions_deleted": int, "rounds_deleted": int}`
+- [ ] Does NOT validate the `confirm` string (that is the cog's responsibility)
+- [ ] Works correctly when server has zero seasons (returns all-zero counts without error)
+
+**Status**: [X]
+
+---
+
+### T015 — Create `src/cogs/reset_cog.py`
+
+**Goal**: Discord command layer for `/bot-reset`.
+
+**Acceptance criteria**:
+- [ ] `@app_commands.command(name="bot-reset")` with `confirm: str` and `full: bool = False` parameters
+- [ ] Decorated with `@admin_only` only (no `@channel_guard`)
+- [ ] Rejects immediately with ephemeral error if `confirm != "CONFIRM"` (case-sensitive) — no DB access
+- [ ] Calls `reset_service.reset_server_data(...)` and responds ephemerally with counts
+- [ ] Partial response: includes "Server config preserved" note
+- [ ] Full response: includes "run /bot-init to re-configure" reminder
+
+**Status**: [X]
+
+---
+
+### T016 — Register `ResetCog` in `src/bot.py`
+
+**Goal**: Wire the new cog into the bot's startup sequence.
+
+**Acceptance criteria**:
+- [ ] `from cogs.reset_cog import ResetCog` import added
+- [ ] `await bot.add_cog(ResetCog(bot))` present in the cog-loading block
+- [ ] Bot starts without errors
+
+**Status**: [X]
+
+---
+
+### T017 — Write `tests/unit/test_reset_service.py`
+
+**Goal**: Unit test coverage for `reset_server_data`.
+
+**Acceptance criteria**:
+- [ ] Test: partial reset deletes seasons/divisions/rounds but preserves `server_configs`
+- [ ] Test: full reset additionally deletes `server_configs`
+- [ ] Test: empty server (no seasons) returns all-zero counts and no error
+- [ ] Test: `cancel_round` called exactly once per round present
+- [ ] Test: transaction rolls back entirely if a DELETE raises (mock DB error)
+- [ ] All tests pass with `pytest`
+
+**Status**: [X]
+
+---
+
+### T018 — Update `README.md`
+
+**Goal**: Document `/bot-reset` in the public README.
+
+**Acceptance criteria**:
+- [ ] `/bot-reset` listed under admin commands section
+- [ ] Parameter table: `confirm` (required, must be `"CONFIRM"`), `full` (optional bool, default `False`)
+- [ ] Brief description of partial vs full reset behaviour
+
+**Status**: [X]
+
+---
+
+### T019 — Run full test suite & validate
+
+**Goal**: Confirm all existing and new tests pass after the addendum implementation.
+
+**Acceptance criteria**:
+- [ ] `pytest` exits 0 with all tests passing (minimum: previous 45 + new reset tests)
+- [ ] No regressions in existing test suite
+- [ ] Bot starts cleanly (`python src/bot.py --dry-run` or equivalent)
+
+**Status**: [X]
+
+---
+
+## Progress Summary (updated)
+
+| Phase | Tasks | Status |
+|-------|-------|--------|
+| 1 — Setup | T001–T003 | ✅ Complete |
+| 2 — Data model & service | T004, T005 | ✅ Complete |
+| 3 — Command layer | T006–T009 | ✅ Complete |
+| 4 — Documentation & polish | T010, T011 | ✅ Complete |
+| 5 — Validation | T012, T013 | ✅ Complete |
+| 6 — Bot reset command | T014–T019 | ✅ Complete |

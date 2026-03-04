@@ -75,3 +75,36 @@ tests/
 
 > No Constitution violations — table omitted.
 
+---
+
+## Addendum — Bot Data Reset Command
+
+### New Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/services/reset_service.py` | `reset_server_data(server_id, db_path, scheduler_service, full) -> dict` |
+| `src/cogs/reset_cog.py` | `/bot-reset` slash command — `@admin_only`, no `@channel_guard` |
+| `tests/unit/test_reset_service.py` | Unit tests for reset service |
+
+### Modified Files
+
+| File | Change |
+|------|--------|
+| `src/bot.py` | Import and register `ResetCog` |
+| `README.md` | Add `/bot-reset` parameter table and usage notes |
+
+### Constitution Check (addendum)
+
+| Principle | Status | Notes |
+|-----------|--------|-------|
+| I — Access tiers | Pass | `@admin_only` (Manage Server) — higher privilege than trusted-user |
+| II — Server isolation | Pass | All DELETEs scoped by `server_id` subquery |
+| III — Phase integrity | Pass | APScheduler jobs cancelled before deletion |
+| IV — Scheduler contract | Pass | `cancel_round()` called per round before DB writes |
+| V — Audit trail | Pass | `audit_entries` deleted last (after seasons), within same tx |
+| VI — Focused scope | Pass | No new tables; no changes to existing commands |
+| VII — Output channels | Pass | Response is ephemeral; no new channel writes |
+
+> No additional Constitution violations.
+

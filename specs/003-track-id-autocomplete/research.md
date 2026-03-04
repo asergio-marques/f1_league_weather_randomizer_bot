@@ -59,3 +59,61 @@
 **Rationale**: discord.py's `Cog.__new__` raises `TypeError` for any method whose name starts with `cog_` or `bot_`, as these prefixes are reserved for Cog lifecycle hooks. The rename is the minimal, zero-risk fix.
 
 **Alternatives considered**: Rename the slash command to avoid `bot-`: would break any existing bookmarks/muscle memory of server admins with no benefit.
+
+
+---
+
+## Addendum — Bot Data Reset Command
+
+### R-006 — FK-Safe Deletion Order
+
+**Question**: In what order must rows be deleted to respect foreign-key constraints?
+
+**Decision**: Delete leaf tables first and cascade toward root:
+1. `sessions` WHERE `round_id` IN (server's rounds)
+2. `phase_results` WHERE `round_id` IN (server's rounds)
+3. `rounds` WHERE `division_id` IN (server's divisions)
+4. `divisions` WHERE `season_id` IN (server's seasons)
+5. `seasons` WHERE `server_id = ?`
+6. `audit_entries` WHERE `server_id = ?`
+7. (full only) `server_configs` WHERE `server_id = ?`
+
+**Rationale**: SQLite FK enforcement (enabled via `PRAGMA foreign_keys = ON`) rejects parent-before-child deletions. Querying intermediate IDs up front avoids correlated sub-selects across every DELETE.
+
+**Alternatives considered**: `PRAGMA foreign_keys = OFF` during operation — rejected; undermines integrity guarantees.
+
+---
+
+### R-007 — Single-Transaction Strategy
+
+**Question**: Should the reset execute all DELETEs in one DB transaction?
+
+**Decision**: Yes — wrap every DELETE in a single `async with db:` block; roll back entirely on any exception.
+
+**Rationale**: Partial deletion (e.g., seasons gone but divisions still present) would corrupt the server's data in an unrecoverable way. Atomicity is non-negotiable.
+
+**Alternatives considered**: Per-table commits — rejected; leaves DB in inconsistent state on failure.
+
+---
+
+### R-008 — Cancel APScheduler Jobs Before DELETE
+
+**Question**: Must scheduled jobs be cancelled before the rows they reference are deleted?
+
+**Decision**: Yes — call `scheduler_service.cancel_round(round_id)` for every round belonging to the server *before* opening the DB transaction.
+
+**Rationale**: Leaving dangling APScheduler jobs referencing deleted `round_id` values risks callback errors after reset. `cancel_round()` already silently ignores missing jobs, so pre-cancellation is safe even for already-fired phases.
+
+**Alternatives considered**: Cancel after DELETE — rejected; window exists where the scheduler fires against deleted rows.
+
+---
+
+### R-009 — `@admin_only` Without `@channel_guard`
+
+**Question**: Should `/bot-reset` require the configured bot channel like other commands?
+
+**Decision**: No `@channel_guard`. Apply `@admin_only` only (mirrors `/bot-init` pattern).
+
+**Rationale**: After a full reset the `server_configs` row is deleted, making `channel_guard` unable to look up the permitted channel. The command must remain accessible from any channel so admins can recover. Partial reset also clears seasons/divisions, so enforcing a now-meaningless channel config adds no security benefit.
+
+**Alternatives considered**: Store channel ID separately from `server_configs` — over-engineered for a one-shot administrative command.

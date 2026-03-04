@@ -95,3 +95,60 @@ Log output will include:
 | 12 | Imola | 26 | Turkey |
 | 13 | Japan | 27 | United Kingdom |
 | 14 | Las Vegas | | |
+
+
+---
+
+## Addendum — Bot Data Reset Command
+
+### `/bot-reset` — Reset Server Data
+
+Available to server members with the **Manage Server** permission. Can be run from **any channel** (not restricted to the bot channel).
+
+#### Partial reset (keep server config)
+
+Deletes all seasons, divisions, rounds, sessions, phase results, and audit entries for this server. The server's bot configuration (channel ID, timezone) is preserved, so the bot remains operational immediately.
+
+```
+/bot-reset confirm:CONFIRM
+```
+
+Response (ephemeral):
+```
+✅ Server data reset.
+Deleted: 2 season(s), 4 division(s), 48 round(s).
+Server config preserved — bot remains active in this channel.
+```
+
+#### Full reset (wipe everything)
+
+Additionally deletes the `server_configs` row. Equivalent to factory-resetting the bot for this server. After a full reset you must run `/bot-init` again before any other commands will work.
+
+```
+/bot-reset confirm:CONFIRM full:True
+```
+
+Response (ephemeral):
+```
+✅ Server data fully reset.
+Deleted: 2 season(s), 4 division(s), 48 round(s).
+Server config removed — run /bot-init to re-configure.
+```
+
+#### Wrong confirmation string
+
+If `confirm` is anything other than `CONFIRM` (case-sensitive), the command is rejected before any deletion occurs:
+
+```
+/bot-reset confirm:yes
+```
+
+```
+❌ Reset aborted. You must pass confirm:CONFIRM (case-sensitive) to proceed.
+```
+
+#### Notes
+
+- All deletions happen in a single atomic transaction — either everything is removed or nothing is.
+- APScheduler jobs for affected rounds are cancelled before the DB transaction opens.
+- Other servers' data is never affected.

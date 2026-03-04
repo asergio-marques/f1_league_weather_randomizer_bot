@@ -74,6 +74,22 @@ This registers:
 
 ---
 
+### `/bot-reset` — Reset server data
+*Access: Server administrator (Manage Server permission) · Can be run from any channel*
+
+Removes all season data for this server. Use `full:True` to also wipe the bot configuration (equivalent to a factory reset).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `confirm` | String | ✅ | Must be exactly `CONFIRM` (case-sensitive) to authorise deletion |
+| `full` | Boolean | — | Also deletes bot configuration — you must re-run `/bot-init` afterwards (default: `False`) |
+
+**Partial reset** (`full:False`, the default): deletes all seasons, divisions, rounds, sessions, phase results, and audit entries.  Bot configuration (channel, role) is preserved; the bot remains usable immediately.
+
+**Full reset** (`full:True`): additionally deletes the bot configuration row.  Run `/bot-init` to re-configure the bot for this server.
+
+---
+
 ### Season Setup Workflow
 
 Season configuration is a multi-step flow: first run `/season-setup`, then add each division with `/division-add`, then add rounds with `/round-add`, then review and approve.
