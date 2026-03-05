@@ -9,43 +9,33 @@ applies unchanged. Only the files listed in the Scope table below require edits.
 
 ## Summary
 
-Six bugs in the `002-test-mode` implementation are corrected:
+Six bugs in the `002-test-mode` implementation are corrected.
 
-1. **Mystery round "next round" leak** — `/season-status` searched all rounds (including
-   Mystery) for the next incomplete round; since Mystery rounds never have phases set to
-   `True`, they permanently appeared as "next round" even after all non-Mystery rounds were
-   fully processed. Fix: exclude `MYSTERY` format from the pending-round predicate.
+Bugs 1–3 were identified and fixed first; Bugs 4–6 were discovered during live usage
+and fixed in the same branch session.
 
-2. **Season not ending after test-mode advance exhausts all phases** — When
-   `/test-mode advance` was called after all non-Mystery phases were done,
-   `get_next_pending_phase` returned `None` and the command returned "nothing to advance"
-   without checking whether the season was still live. Fix: when the queue is empty
-   and an active season still exists, call `execute_season_end` as a safety net.
+1. **Mystery round "next round" leak** — `/season-status` cited Mystery rounds as pending
+   next rounds. Fix: exclude `MYSTERY` from the `next_round` predicate in `season_cog`.
 
-3. **Test-mode commands gated to server admins instead of interaction-role holders** —
-   The `test_mode` `app_commands.Group` had no `default_permissions` value,
-   leaving Discord to apply any previously cached per-server restriction (which could be
-   `manage_guild`). Fix: add `guild_only=True` and `default_permissions=None` to the
-   Group definition so Discord resets permissions on the next tree sync, leaving
-   `channel_guard` as the sole gate.
+2. **Season stuck ACTIVE after advance exhausts queue** — Returning `None` from the phase
+   queue without checking for a live season left the season permanently stuck. Fix: safety
+   net calls `execute_season_end` when queue is empty and season still exists.
 
-4. **Mystery round notice skipped during test-mode advance** — APScheduler fires
-   `mystery_r{id}` jobs on a real-time schedule; in test mode the scheduler never fires,
-   so Mystery round notices were silently never sent. Fix: widen `get_next_pending_phase`
-   to include Mystery rounds, return a `phase_number=0` sentinel entry when the notice
-   has not yet been sent, and handle that sentinel in the advance command by calling
-   `run_mystery_notice` and setting `phase1_done = 1` on success.
+3. **Test-mode commands required admin** — Missing `guild_only` and `default_permissions`
+   on the Group let Discord fall back to cached `manage_guild` restrictions. Fix: set
+   `guild_only=True, default_permissions=None` so `channel_guard` is the sole gate.
 
-5. **Reset does not clear `forecast_messages`, causing FK violation** — `reset_service`
-   deleted `sessions` and `phase_results` but not `forecast_messages` before deleting
-   `rounds`. Because `forecast_messages` has `REFERENCES rounds(id)`, any reset after
-   Phase 1 had run raised `FOREIGN KEY constraint failed` and aborted. Fix: add
-   `DELETE FROM forecast_messages WHERE round_id IN (...)` after `phase_results` and
-   before `rounds` in the reset transaction.
+4. **Mystery notice never fires in test mode** — APScheduler (`mystery_r{id}`) never runs
+   in test mode; the notice was silently skipped. Fix: `get_next_pending_phase` returns a
+   `phase_number=0` sentinel for unnoticed Mystery rounds; the cog dispatches
+   `run_mystery_notice` and marks `phase1_done=1` on success.
 
-6. **Round DB id used in logs instead of user-visible round number** — Advance log lines
-   emitted the internal `rounds.id` primary key, which is meaningless to league managers
-   reading logs. Fix: add `round_number: int` to `PhaseEntry` and include both
+5. **Reset raises FK violation when forecast_messages exists** — `reset_service` skipped
+   deleting `forecast_messages` before `rounds`, violating the FK. Fix: add the delete in
+   the correct position in the FK-safe chain.
+
+6. **Advance logs show DB id instead of round number** — Log lines emitted `rounds.id`
+   (meaningless to managers). Fix: add `round_number` to `PhaseEntry` and emit both
    `round=<round_number>` and `id=<round_id>` in the log line.
 
 ## Technical Context
@@ -62,6 +52,8 @@ Six bugs in the `002-test-mode` implementation are corrected:
 
 ## Constitution Check
 
+*GATE: Must pass before Phase 0 research. Re-checked post-implementation.*
+
 | Principle | Requirement | Status |
 |-----------|-------------|--------|
 | I — Trusted Configuration Authority | Bug 3 fix restores correct Tier-1 enforcement: interaction-role check in `channel_guard` gates all three `/test-mode` subcommands; no admin-only escalation | ✅ PASS |
@@ -73,6 +65,25 @@ Six bugs in the `002-test-mode` implementation are corrected:
 | VII — Output Channel Discipline | No new output channels used; season-end posts to the configured log channel only | ✅ PASS |
 
 **Constitution Check result: PASS — no violations, no Complexity Tracking entries required.**
+
+## Research Notes
+
+*No Phase 0 required* — All fixes are scoped to existing code paths and patterns already
+established in `002-test-mode`. Key design decisions:
+
+- **Bug 4 (mystery notice proxy)**: Reuse `rounds.phase1_done = 1` as the "notice sent"
+  marker rather than adding a new column. Safe because `all_phases_complete` and
+  `build_review_summary` already filter `format != 'MYSTERY'`, so the flag has no
+  side-effects on season-end or review logic. No migration needed.
+
+- **Bug 4 (phase_number=0 sentinel)**: Using `0` as the mystery-notice sentinel in
+  `PhaseEntry` cleanly separates it from real phases (1/2/3) without introducing a new
+  enum or TypedDict variant. The cog dispatch is a simple `if phase_number == 0` guard
+  before the existing `phase_runners` dict.
+
+- **Bug 5 (FK deletion order)**: SQLite FK enforcement is ON via `PRAGMA foreign_keys = ON`
+  on every connection. The correct deletion chain for this schema is:
+  `sessions → phase_results → forecast_messages → rounds → divisions → seasons`.
 
 ## Scope
 
@@ -93,8 +104,8 @@ Six bugs in the `002-test-mode` implementation are corrected:
 ```text
 specs/009-test-mode-bugfix/
 ├── plan.md    ← this file
-├── spec.md    ← bug specifications
-└── tasks.md   ← task list (/speckit.tasks output)
+├── spec.md    ← bug specifications (covers all 6 bugs)
+└── tasks.md   ← task list (T001–T012 + quality gates)
 ```
 
 No `research.md`, `data-model.md`, `quickstart.md`, or `contracts/` — this is a
