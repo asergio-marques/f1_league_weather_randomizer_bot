@@ -15,7 +15,7 @@
 
 **Purpose**: Database schema foundation required before any code changes.
 
-- [ ] T001 Create migration `src/db/migrations/007_cancellation_status.sql` — two `ALTER TABLE` statements adding `status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','CANCELLED'))` to `divisions` and `rounds`
+- [X] T001 Create migration `src/db/migrations/007_cancellation_status.sql` — two `ALTER TABLE` statements adding `status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','CANCELLED'))` to `divisions` and `rounds`
 
 ---
 
@@ -23,13 +23,13 @@
 
 **Purpose**: Model fields, service methods, and message-builder helpers shared across all user stories. Must be complete before any user-story phase begins.
 
-- [ ] T002 [P] Add `status: str` field (default `"ACTIVE"`) to `Division` dataclass in `src/models/division.py`
-- [ ] T003 [P] Add `status: str` field (default `"ACTIVE"`) to `Round` dataclass in `src/models/round.py`
-- [ ] T004 Update `SeasonService.create_season` in `src/services/season_service.py` — remove `start_date` parameter; default to `date.today()` internally; update all call sites
-- [ ] T005 Add `SeasonService.renumber_rounds(division_id: int)` in `src/services/season_service.py` — fetches all rounds for the division, sorts by `scheduled_at` ascending, atomically rewrites `round_number` 1…N
-- [ ] T006 [P] Add `format_division_list(divisions: list[Division]) -> str` helper in `src/utils/message_builder.py` — produces a formatted string: one line per division with name, role mention, forecast channel mention
-- [ ] T007 [P] Add `format_round_list(rounds: list[Round]) -> str` helper in `src/utils/message_builder.py` — produces a formatted string: one line per round with round number, track (or "TBD"), format, and datetime (UTC)
-- [ ] T008 Create `division = app_commands.Group(name="division", ...)` in `src/cogs/season_cog.py` and move the existing `division_add` command into it as a `@division.command(name="add")` subcommand — no behaviour changes yet, only structural migration
+- [X] T002 [P] Add `status: str` field (default `"ACTIVE"`) to `Division` dataclass in `src/models/division.py`
+- [X] T003 [P] Add `status: str` field (default `"ACTIVE"`) to `Round` dataclass in `src/models/round.py`
+- [X] T004 Update `SeasonService.create_season` in `src/services/season_service.py` — remove `start_date` parameter; default to `date.today()` internally; update all call sites
+- [X] T005 Add `SeasonService.renumber_rounds(division_id: int)` in `src/services/season_service.py` — fetches all rounds for the division, sorts by `scheduled_at` ascending, atomically rewrites `round_number` 1…N
+- [X] T006 [P] Add `format_division_list(divisions: list[Division]) -> str` helper in `src/utils/message_builder.py` — produces a formatted string: one line per division with name, role mention, forecast channel mention
+- [X] T007 [P] Add `format_round_list(rounds: list[Round]) -> str` helper in `src/utils/message_builder.py` — produces a formatted string: one line per round with round number, track (or "TBD"), format, and datetime (UTC)
+- [X] T008 Create `division = app_commands.Group(name="division", ...)` in `src/cogs/season_cog.py` and move the existing `division_add` command into it as a `@division.command(name="add")` subcommand — no behaviour changes yet, only structural migration
 
 ---
 
@@ -39,8 +39,8 @@
 
 **Independent test**: Run `/season setup` with no parameters on a clean server — season enters SETUP. Run again — rejected with conflict message.
 
-- [ ] T009 [US1] Wrap existing season commands (`season_setup`, `season_review`, `season_approve`, `season_status`) into an `app_commands.Group(name="season", ...)` in `src/cogs/season_cog.py`; rename each to `setup`, `review`, `approve`, `status` respectively
-- [ ] T010 [US1] Remove `start_date` and `num_divisions` parameters from `/season setup` in `src/cogs/season_cog.py`; remove `PendingConfig.start_date` field; remove division-slot pre-allocation loop; update the call to `season_service.create_season` to pass no `start_date`
+- [X] T009 [US1] Wrap existing season commands (`season_setup`, `season_review`, `season_approve`, `season_status`) into an `app_commands.Group(name="season", ...)` in `src/cogs/season_cog.py`; rename each to `setup`, `review`, `approve`, `status` respectively
+- [X] T010 [US1] Remove `start_date` and `num_divisions` parameters from `/season setup` in `src/cogs/season_cog.py`; remove `PendingConfig.start_date` field; remove division-slot pre-allocation loop; update the call to `season_service.create_season` to pass no `start_date`
 
 ---
 
@@ -50,9 +50,9 @@
 
 **Independent test**: Add three rounds out of date order in one division; confirm numbers 1, 2, 3 are assigned in ascending date order on each confirmation.
 
-- [ ] T011 [US2] Delete `DuplicateRoundView` class and `_rounds_insert_before`, `_rounds_insert_after`, `_rounds_replace` helper functions from `src/cogs/season_cog.py`
-- [ ] T012 [US2] Create `round = app_commands.Group(name="round", ...)` in `src/cogs/season_cog.py`; move `round_add` into it as `@round.command(name="add")`; remove `round_number` parameter; compute insertion position by appending the new round then calling `renumber_rounds`; include the assigned round number in the confirmation message
-- [ ] T013 [P] [US2] In `/round amend` in `src/cogs/amendment_cog.py`, call `season_service.renumber_rounds(division_id)` after any change to `scheduled_at`, before sending the confirmation response
+- [X] T011 [US2] Delete `DuplicateRoundView` class and `_rounds_insert_before`, `_rounds_insert_after`, `_rounds_replace` helper functions from `src/cogs/season_cog.py`
+- [X] T012 [US2] Create `round = app_commands.Group(name="round", ...)` in `src/cogs/season_cog.py`; move `round_add` into it as `@round.command(name="add")`; remove `round_number` parameter; compute insertion position by appending the new round then calling `renumber_rounds`; include the assigned round number in the confirmation message
+- [X] T013 [P] [US2] In `/round amend` in `src/cogs/amendment_cog.py`, call `season_service.renumber_rounds(division_id)` after any change to `scheduled_at`, before sending the confirmation response
 
 ---
 
@@ -62,9 +62,9 @@
 
 **Independent test**: After `/division add`, confirm the response contains a list of all divisions. After `/round add`, confirm the response contains all rounds for that division.
 
-- [ ] T014 [US3] Append `format_division_list(...)` output to the confirmation response of `/division add` in `src/cogs/season_cog.py`
-- [ ] T015 [P] [US3] Append `format_round_list(...)` output to the confirmation response of `/round add` in `src/cogs/season_cog.py`
-- [ ] T016 [P] [US3] Append `format_round_list(...)` output to the confirmation response of `/round amend` in `src/cogs/amendment_cog.py`
+- [X] T014 [US3] Append `format_division_list(...)` output to the confirmation response of `/division add` in `src/cogs/season_cog.py`
+- [X] T015 [P] [US3] Append `format_round_list(...)` output to the confirmation response of `/round add` in `src/cogs/season_cog.py`
+- [X] T016 [P] [US3] Append `format_round_list(...)` output to the confirmation response of `/round amend` in `src/cogs/amendment_cog.py`
 
 ---
 
@@ -74,8 +74,8 @@
 
 **Independent test**: Duplicate a division with +2 day, −1.5 hour offset; verify all rounds in the new division have datetimes shifted by exactly that amount.
 
-- [ ] T017 [US4] Add `SeasonService.duplicate_division(division_id, name, role_id, forecast_channel_id, day_offset: int, hour_offset: float) -> Division` in `src/services/season_service.py` — copies all rounds from source division with shifted `scheduled_at`; calls `renumber_rounds` on new division; returns new `Division`
-- [ ] T018 [US4] Add `/division duplicate` as `@division.command(name="duplicate")` in `src/cogs/season_cog.py` — parameters: `source_name`, `new_name`, `role`, `forecast_channel`, `day_offset: int`, `hour_offset: float`; reject if season not SETUP; reject if `new_name` already exists; call `duplicate_division`; warn if any shifted datetime is in the past or if two rounds share a `scheduled_at`; respond with `format_division_list` + `format_round_list` for the new division
+- [X] T017 [US4] Add `SeasonService.duplicate_division(division_id, name, role_id, forecast_channel_id, day_offset: int, hour_offset: float) -> Division` in `src/services/season_service.py` — copies all rounds from source division with shifted `scheduled_at`; calls `renumber_rounds` on new division; returns new `Division`
+- [X] T018 [US4] Add `/division duplicate` as `@division.command(name="duplicate")` in `src/cogs/season_cog.py` — parameters: `source_name`, `new_name`, `role`, `forecast_channel`, `day_offset: int`, `hour_offset: float`; reject if season not SETUP; reject if `new_name` already exists; call `duplicate_division`; warn if any shifted datetime is in the past or if two rounds share a `scheduled_at`; respond with `format_division_list` + `format_round_list` for the new division
 
 ---
 
@@ -85,10 +85,10 @@
 
 **Independent test**: Add a division with two rounds. Delete round 1; verify round 2 becomes round 1 and the round list is shown. Delete the division; verify division list is empty.
 
-- [ ] T019 [US5] Add `SeasonService.delete_division(division_id: int)` in `src/services/season_service.py` — cascade-deletes all rounds, sessions, phase results, forecast messages, and then the division row for the given `division_id`
-- [ ] T020 [P] [US5] Add `SeasonService.delete_round(round_id: int)` in `src/services/season_service.py` — deletes the round row (and any child sessions/phase_results), then calls `renumber_rounds` for the round's division
-- [ ] T021 [US5] Add `/division delete` as `@division.command(name="delete")` in `src/cogs/season_cog.py` — parameter: `name`; reject if season not SETUP; call `delete_division`; respond with `format_division_list`
-- [ ] T022 [P] [US5] Add `/round delete` as `@round.command(name="delete")` in `src/cogs/season_cog.py` — parameters: `division_name`, `round_number`; reject if season not SETUP; call `delete_round`; respond with `format_round_list` for the affected division
+- [X] T019 [US5] Add `SeasonService.delete_division(division_id: int)` in `src/services/season_service.py` — cascade-deletes all rounds, sessions, phase results, forecast messages, and then the division row for the given `division_id`
+- [X] T020 [P] [US5] Add `SeasonService.delete_round(round_id: int)` in `src/services/season_service.py` — deletes the round row (and any child sessions/phase_results), then calls `renumber_rounds` for the round's division
+- [X] T021 [US5] Add `/division delete` as `@division.command(name="delete")` in `src/cogs/season_cog.py` — parameter: `name`; reject if season not SETUP; call `delete_division`; respond with `format_division_list`
+- [X] T022 [P] [US5] Add `/round delete` as `@round.command(name="delete")` in `src/cogs/season_cog.py` — parameters: `division_name`, `round_number`; reject if season not SETUP; call `delete_round`; respond with `format_round_list` for the affected division
 
 ---
 
@@ -98,11 +98,11 @@
 
 **Independent test**: Cancel a round by its number with `confirm:CONFIRM`; verify the forecast channel receives a notice with no role mention and the round is skipped by the scheduler.
 
-- [ ] T023 [US6] Update `src/services/scheduler_service.py` — add `status != 'CANCELLED'` guard to the phase-scheduling query for rounds; ensure divisions with `status = 'CANCELLED'` are entirely excluded from the scheduling loop
-- [ ] T024 [US6] Add `SeasonService.cancel_division(division_id: int)` in `src/services/season_service.py` — sets `divisions.status = 'CANCELLED'`; writes an `AUDIT` entry recording actor, division, change type `DIVISION_CANCELLED`
-- [ ] T025 [P] [US6] Add `SeasonService.cancel_round(round_id: int)` in `src/services/season_service.py` — sets `rounds.status = 'CANCELLED'`; writes an `AUDIT` entry recording actor, division, round, change type `ROUND_CANCELLED`
-- [ ] T026 [US6] Add `/division cancel` as `@division.command(name="cancel")` in `src/cogs/season_cog.py` — parameters: `name`, `confirm: str`; reject wrong confirmation string; reject if season not ACTIVE; reject if division already CANCELLED; call `cancel_division`; post cancellation notice to division's `forecast_channel_id` (no role mention) via `output_router`
-- [ ] T027 [P] [US6] Add `/round cancel` as `@round.command(name="cancel")` in `src/cogs/season_cog.py` — parameters: `division_name`, `round_number`, `confirm: str`; reject wrong confirmation string; reject if season not ACTIVE; reject if round already CANCELLED; permitted if phases have started; call `cancel_round`; post cancellation notice to division's `forecast_channel_id` (no role mention) via `output_router`
+- [X] T023 [US6] Update `src/services/scheduler_service.py` — add `status != 'CANCELLED'` guard to the phase-scheduling query for rounds; ensure divisions with `status = 'CANCELLED'` are entirely excluded from the scheduling loop
+- [X] T024 [US6] Add `SeasonService.cancel_division(division_id: int)` in `src/services/season_service.py` — sets `divisions.status = 'CANCELLED'`; writes an `AUDIT` entry recording actor, division, change type `DIVISION_CANCELLED`
+- [X] T025 [P] [US6] Add `SeasonService.cancel_round(round_id: int)` in `src/services/season_service.py` — sets `rounds.status = 'CANCELLED'`; writes an `AUDIT` entry recording actor, division, round, change type `ROUND_CANCELLED`
+- [X] T026 [US6] Add `/division cancel` as `@division.command(name="cancel")` in `src/cogs/season_cog.py` — parameters: `name`, `confirm: str`; reject wrong confirmation string; reject if season not ACTIVE; reject if division already CANCELLED; call `cancel_division`; post cancellation notice to division's `forecast_channel_id` (no role mention) via `output_router`
+- [X] T027 [P] [US6] Add `/round cancel` as `@round.command(name="cancel")` in `src/cogs/season_cog.py` — parameters: `division_name`, `round_number`, `confirm: str`; reject wrong confirmation string; reject if season not ACTIVE; reject if round already CANCELLED; permitted if phases have started; call `cancel_round`; post cancellation notice to division's `forecast_channel_id` (no role mention) via `output_router`
 
 ---
 
@@ -112,8 +112,8 @@
 
 **Independent test**: Run `/season cancel confirm:CONFIRM` as server admin; verify both active division forecast channels receive notices (no role pings) and `/season setup` succeeds immediately after.
 
-- [ ] T028 [US7] Add `SeasonService.delete_season(season_id: int)` in `src/services/season_service.py` — FK-safe cascade delete in order: `forecast_messages` → `phase_results` → `sessions` → `rounds` → `divisions` → `seasons` (mirrors the ordering in `reset_service.py`)
-- [ ] T029 [US7] Add `/season cancel` as `@season.command(name="cancel")` in `src/cogs/season_cog.py` — decorate with `@admin_only` (from `src/utils/channel_guard.py`); parameter: `confirm: str`; reject wrong confirmation; reject if season not ACTIVE; iterate ACTIVE divisions and post notice to each `forecast_channel_id` (no role mention); call `delete_season`
+- [X] T028 [US7] Add `SeasonService.delete_season(season_id: int)` in `src/services/season_service.py` — FK-safe cascade delete in order: `forecast_messages` → `phase_results` → `sessions` → `rounds` → `divisions` → `seasons` (mirrors the ordering in `reset_service.py`)
+- [X] T029 [US7] Add `/season cancel` as `@season.command(name="cancel")` in `src/cogs/season_cog.py` — decorate with `@admin_only` (from `src/utils/channel_guard.py`); parameter: `confirm: str`; reject wrong confirmation; reject if season not ACTIVE; iterate ACTIVE divisions and post notice to each `forecast_channel_id` (no role mention); call `delete_season`
 
 ---
 
@@ -123,8 +123,8 @@
 
 **Independent test**: Create division "Pro"; rename to "Pro-Am"; verify division list shows "Pro-Am" and its rounds are unchanged.
 
-- [ ] T030 [US8] Add `SeasonService.rename_division(division_id: int, new_name: str)` in `src/services/season_service.py` — single UPDATE on `divisions.name`
-- [ ] T031 [US8] Add `/division rename` as `@division.command(name="rename")` in `src/cogs/season_cog.py` — parameters: `current_name`, `new_name`; reject if season not SETUP; reject if `current_name` not found; reject if `new_name` already in use; call `rename_division`; respond with `format_division_list`
+- [X] T030 [US8] Add `SeasonService.rename_division(division_id: int, new_name: str)` in `src/services/season_service.py` — single UPDATE on `divisions.name`
+- [X] T031 [US8] Add `/division rename` as `@division.command(name="rename")` in `src/cogs/season_cog.py` — parameters: `current_name`, `new_name`; reject if season not SETUP; reject if `current_name` not found; reject if `new_name` already in use; call `rename_division`; respond with `format_division_list`
 
 ---
 
@@ -134,7 +134,7 @@
 
 **Independent test**: Invoke `/test-mode toggle` as a non-admin interaction-role holder — get permission error. Invoke as server admin — succeeds.
 
-- [ ] T032 [US9] In `src/cogs/test_mode_cog.py`, replace the `@channel_guard` decorator on `toggle`, `advance`, and `review` subcommands with `@admin_only` (already defined in `src/utils/channel_guard.py`); `default_permissions=None` and `guild_only=True` on the group remain unchanged
+- [X] T032 [US9] In `src/cogs/test_mode_cog.py`, replace the `@channel_guard` decorator on `toggle`, `advance`, and `review` subcommands with `@admin_only` (already defined in `src/utils/channel_guard.py`); `default_permissions=None` and `guild_only=True` on the group remain unchanged
 
 ---
 
@@ -142,9 +142,9 @@
 
 **Purpose**: Migrate the remaining stranded command, document everything for users, and verify the full test suite passes.
 
-- [ ] T033 Migrate `/round amend` from `src/cogs/amendment_cog.py` into the `round` group in `src/cogs/season_cog.py` as `@round.command(name="amend")`; retire `AmendmentCog` (remove from bot.py cog loading or leave as empty stub)
-- [ ] T034 [P] Rewrite the **Slash Commands** section and **Season Setup Workflow** section of `README.md` — document all five command groups (`/bot-init`, `/bot-reset`, `/season`, `/division`, `/round`, `/track`, `/test-mode`), their subcommands with parameter tables, removed parameters (`start_date`, `num_divisions`, `round_number`), access levels, and season lifecycle
-- [ ] T035 Run `pytest` from the repository root; fix any regressions caused by the command migration (`season_setup` → `season setup`, `round_add` → `round add`, `round_amend` → `round amend`) and service signature changes (`create_season` without `start_date`)
+- [X] T033 Migrate `/round amend` from `src/cogs/amendment_cog.py` into the `round` group in `src/cogs/season_cog.py` as `@round.command(name="amend")`; retire `AmendmentCog` (remove from bot.py cog loading or leave as empty stub)
+- [X] T034 [P] Rewrite the **Slash Commands** section and **Season Setup Workflow** section of `README.md` — document all five command groups (`/bot-init`, `/bot-reset`, `/season`, `/division`, `/round`, `/track`, `/test-mode`), their subcommands with parameter tables, removed parameters (`start_date`, `num_divisions`, `round_number`), access levels, and season lifecycle
+- [X] T035 Run `pytest` from the repository root; fix any regressions caused by the command migration (`season_setup` → `season setup`, `round_add` → `round add`, `round_amend` → `round amend`) and service signature changes (`create_season` without `start_date`)
 
 ---
 
