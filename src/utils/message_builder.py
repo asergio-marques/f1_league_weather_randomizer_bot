@@ -138,9 +138,17 @@ def mystery_notice_message() -> str:
 
 
 def _slot_icon(slot: str) -> str:
-    return {"rain": "🌧️", "mixed": "🌥️", "sunny": "☀️"}.get(slot, "❓")
+    return {"rain": "🌧️", "mixed": "🌦️", "sunny": "☀️"}.get(slot, "❓")
 
 
 def session_type_label(session_type_value: str) -> str:
-    """Convert a SessionType enum value to a human-readable label."""
-    return session_type_value.replace("_", " ").title()
+    """Convert a SessionType enum value to a human-readable label.
+
+    Strips the leading length qualifier (Short / Long / Full) so outputs read
+    e.g. 'Sprint Qualifying' rather than 'Short Sprint Qualifying'.
+    """
+    label = session_type_value.replace("_", " ").title()
+    for prefix in ("Short ", "Long ", "Full "):
+        if label.startswith(prefix):
+            return label[len(prefix):]
+    return label
