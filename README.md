@@ -177,6 +177,39 @@ No parameters. Displays a summary of all rounds for the active season, showing w
 
 ---
 
+### Track Distribution Parameters
+
+#### `/track config` — Set per-track Beta distribution parameters
+*Access: Trusted admin*
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|--------------|
+| `track` | String | ✅ | Track ID or name (autocomplete supported) |
+| `mu` | Float | ✅ | Mean rain probability (0.0 – 1.0 exclusive, e.g. `0.30` for 30%) |
+| `sigma` | Float | ✅ | Dispersion / standard deviation (must be > 0) |
+
+Changes take effect for all future Phase 1 draws. Existing results are not retroactively recalculated.
+
+#### `/track reset` — Revert to packaged default
+*Access: Trusted admin*
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|--------------|
+| `track` | String | ✅ | Track ID or name to reset |
+
+Removes the server override; the bot reverts to its packaged default values for that track.
+
+#### `/track info` — Inspect effective parameters
+*Access: Interaction role*
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|--------------|
+| `track` | String | ✅ | Track ID or name |
+
+Shows the effective μ and σ, whether they come from a server override or the bot's packaged default, and (for overrides) who set them and when.
+
+---
+
 ### Track ID Reference
 
 Use these IDs in `/round-add` and `/round-amend` — autocomplete will show the full list as you type.
@@ -192,6 +225,51 @@ Use these IDs in `/round-add` and `/round-amend` — autocomplete will show the 
 | 07 | Belgium | 16 | Mexico | 25 | Texas |
 | 08 | Brazil | 17 | Miami | 26 | Turkey |
 | 09 | Canada | 18 | Monaco | 27 | United Kingdom |
+
+---
+
+## Track Distribution Parameters
+
+Phase 1 draws the rain probability coefficient (`Rpc`) from a **Beta distribution** parameterised by two values per track:
+
+| Symbol | Name | Meaning |
+|--------|------|---------|
+| **μ** (`mu`) | Mean rain probability | Expected average Rpc for this circuit |
+| **σ** (`sigma`) | Dispersion | Controls how wide / unpredictable the distribution is |
+
+The Beta distribution is natively bounded to [0, 1], so no clamping is needed under normal parameters.
+
+### How σ affects the shape
+
+Raising σ **widens** the distribution and pushes probability mass towards both extremes:
+
+- **Small σ** (e.g. Bahrain: μ = 5%, σ = 2%): draws cluster tightly around the mean. Rare to see anything above ~10%; the track feels reliably dry.
+- **Larger σ** (e.g. Belgium: μ = 30%, σ = 8%): draws spread across a wider band. You might see 5% or 55% in the same season — genuine unpredictability.
+
+**Concrete tail probabilities (approximate)**:
+
+| Track | μ | σ | P(Rpc ≥ 10%) | P(Rpc ≥ 25%) |
+|-------|---|---|--------------|---------------|
+| Bahrain | 5% | 2% | ~2% | < 0.1% |
+| Bahrain | 5% | 5% | ~14% | ~3% |
+| Belgium | 30% | 8% | ~97% | ~50% |
+
+Raising Bahrain's σ from 2% to 5% increases the chance of a surprise wet event (≥ 10%) from ~2% to ~14%. Belgium at σ = 8% is almost always substantially wet, but occasionally surprises with a dry day.
+
+### The J-shape / humped-bell transition
+
+The Beta distribution changes shape depending on the derived parameters α = μν and β = (1 − μ)ν, where ν = μ(1 − μ)/σ² − 1.
+
+- **When α < 1** (typical for low-μ, wider-σ tracks): the distribution is **J-shaped** — mode at 0, with a long right tail. Most draws are near 0, but genuine spikes into moderate territory are possible. This is exactly the desired behaviour for arid circuits like Bahrain or Qatar.
+- **When α > 1 and β > 1** (typical for mid-μ tracks with moderate σ): the distribution is **bell-shaped (humped)** — centred around the mean with symmetric spread. United Kingdom (μ = 30%, σ = 5%) behaves like this.
+
+### Feasibility constraint
+
+σ must satisfy `σ < √(μ × (1 − μ))`. If this is violated, the Beta parameters become non-positive and sampling will fail — Phase 1 will block with an error to the log channel. Use `/track info` after setting parameters to verify.
+
+### Packaged defaults
+
+All 27 circuits ship with pre-tuned defaults. Use `/track info <track>` to inspect them or `/track config` to override them for your server.
 
 ---
 

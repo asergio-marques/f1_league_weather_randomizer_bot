@@ -14,7 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from models.round import RoundFormat
-from models.track import TRACKS, TRACK_IDS
+from models.track import TRACK_DEFAULTS, TRACK_IDS
 from utils.channel_guard import channel_guard, admin_only
 
 log = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class AmendmentCog(commands.Cog):
             new_track: str | None = ...
             if track:
                 resolved = TRACK_IDS.get(track.zfill(2), track)
-                if resolved not in TRACKS:
+                if resolved not in TRACK_DEFAULTS:
                     await interaction.response.send_message(
                         f"❌ Unknown track `{track}`. Use autocomplete to pick a valid track.",
                         ephemeral=True,
@@ -210,7 +210,7 @@ class AmendmentCog(commands.Cog):
         if track:
             # Allow lookup by numeric ID (e.g. "27" → "United Kingdom")
             resolved = TRACK_IDS.get(track.zfill(2), track)
-            if resolved not in TRACKS:
+            if resolved not in TRACK_DEFAULTS:
                 await interaction.response.send_message(
                     f"\u274c Unknown track `{track}`. Use `/round-amend` and let autocomplete guide you.",
                     ephemeral=True,
