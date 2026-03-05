@@ -11,7 +11,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from utils.math_utils import (
-    compute_rpc,
+    compute_rpc_beta,
     compute_ir,
     compute_im,
     compute_is,
@@ -25,27 +25,72 @@ from utils.math_utils import (
 )
 
 
-class TestComputeRpc:
-    def test_basic_calculation(self) -> None:
-        # btrack=0.05, dice=1,1: (0.05 * 1 * 1) / 3025 ≈ 0.0000165 → rounds to 0.0
-        result = compute_rpc(0.05, 1, 1)
-        assert result == round((0.05 * 1 * 1) / 3025, 2)
+class TestComputeRpcBeta:
+    """Tests for compute_rpc_beta — Beta distribution sampling."""
 
-    def test_clamps_to_zero(self) -> None:
-        # Artificially: btrack extreme values that might push < 0
-        result = compute_rpc(0.0, 1, 1)
-        assert result == 0.0
+    def test_returns_tuple(self) -> None:
+        raw_draw, rpc = compute_rpc_beta(0.30, 0.05)
+        assert isinstance(raw_draw, float)
+        assert isinstance(rpc, float)
 
-    def test_clamps_to_one(self) -> None:
-        # Very large inputs should clamp to 1.0
-        result = compute_rpc(1.0, 98, 98)
-        assert result == 1.0
+    def test_rpc_within_bounds_mid_range(self) -> None:
+        # United Kingdom: mu=0.30, sigma=0.05 — run 50 draws
+        for _ in range(50):
+            raw_draw, rpc = compute_rpc_beta(0.30, 0.05)
+            assert 0.0 <= rpc <= 1.0, f"rpc={rpc} out of [0,1]"
 
-    def test_result_within_bounds_for_typical_values(self) -> None:
-        for btrack in [0.05, 0.10, 0.25, 0.30]:
-            for r in range(1, 99, 20):
-                rpc = compute_rpc(btrack, r, r)
-                assert 0.0 <= rpc <= 1.0, f"Out of bounds: btrack={btrack}, r={r}, rpc={rpc}"
+    def test_rpc_within_bounds_low_mu(self) -> None:
+        # Bahrain: mu=0.05, sigma=0.02
+        for _ in range(50):
+            raw_draw, rpc = compute_rpc_beta(0.05, 0.02)
+            assert 0.0 <= rpc <= 1.0, f"rpc={rpc} out of [0,1]"
+
+    def test_rpc_rounded_to_2dp(self) -> None:
+        for _ in range(20):
+            _, rpc = compute_rpc_beta(0.25, 0.05)
+            assert rpc == round(rpc, 2)
+
+    def test_raw_draw_recorded(self) -> None:
+        # raw_draw must be present and be a float (even if clamped rpc differs)
+        raw_draw, rpc = compute_rpc_beta(0.30, 0.05)
+        assert isinstance(raw_draw, float)
+
+    def test_clamp_applied_via_monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Force betavariate to return 1.5 (out of range) — rpc must clamp to 1.0
+        import utils.math_utils as math_utils
+        monkeypatch.setattr(math_utils._random, "betavariate", lambda a, b: 1.5)
+        raw_draw, rpc = compute_rpc_beta(0.30, 0.05)
+        assert raw_draw == 1.5
+        assert rpc == 1.0
+
+    def test_clamp_lower_bound_via_monkeypatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Force betavariate to return -0.1 — rpc must clamp to 0.0
+        import utils.math_utils as math_utils
+        monkeypatch.setattr(math_utils._random, "betavariate", lambda a, b: -0.1)
+        raw_draw, rpc = compute_rpc_beta(0.30, 0.05)
+        assert raw_draw == pytest.approx(-0.1)
+        assert rpc == 0.0
+
+    def test_infeasible_sigma_raises(self) -> None:
+        # sigma >= sqrt(mu*(1-mu)) must raise ValueError
+        import math
+        mu = 0.30
+        sigma = math.sqrt(mu * (1.0 - mu))  # exactly at boundary
+        with pytest.raises(ValueError, match="Infeasible"):
+            compute_rpc_beta(mu, sigma)
+
+    def test_sigma_zero_raises(self) -> None:
+        with pytest.raises(ValueError):
+            compute_rpc_beta(0.30, 0.0)
+
+    def test_all_27_default_tracks_produce_valid_rpc(self) -> None:
+        """Smoke test: all packaged defaults produce a valid draw."""
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+        from models.track import TRACK_DEFAULTS
+        for track, (mu, sigma) in TRACK_DEFAULTS.items():
+            raw_draw, rpc = compute_rpc_beta(mu, sigma)
+            assert 0.0 <= rpc <= 1.0, f"{track}: rpc={rpc} out of [0,1]"
 
 
 class TestSlotDistribution:

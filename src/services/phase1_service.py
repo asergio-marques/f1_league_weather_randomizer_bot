@@ -1,6 +1,6 @@
 """Phase 1 service — Rain probability announcement (T−5 days).
 
-Draws rand1, rand2 in [1, 98], computes Rpc, persists PhaseResult,
+Draws Rpc from the per-track Beta distribution (mu, sigma), persists PhaseResult,
 posts to forecast and log channels.
 """
 
@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from db.database import get_connection
-from models.track import get_btrack
-from utils.math_utils import compute_rpc
+from models.track import get_effective_rpc_params
+from utils.math_utils import compute_rpc_beta
 from utils.message_builder import phase1_message, phase_log_message
 
 if TYPE_CHECKING:
@@ -51,23 +50,55 @@ async def run_phase1(round_id: int, bot: "Bot") -> None:
         log.error("Phase 1: round %s has no track_name", round_id)
         return
 
+    # --- Resolve effective (mu, sigma) — server override > packaged default ---
+    async with get_connection(bot.db_path) as db:
+        override_cursor = await db.execute(
+            "SELECT mu_rain_pct, sigma_rain_pct FROM track_rpc_params WHERE track_name = ?",
+            (track_name,),
+        )
+        override_row = await override_cursor.fetchone()
+
+    override_mu = override_row["mu_rain_pct"] if override_row else None
+    override_sigma = override_row["sigma_rain_pct"] if override_row else None
+
     try:
-        btrack = get_btrack(track_name)
+        mu, sigma = get_effective_rpc_params(track_name, override_mu, override_sigma)
     except ValueError as exc:
-        log.error("Phase 1: %s", exc)
+        # FR-015: no packaged default AND no server override — block Phase 1
+        err_msg = (
+            f"\u26a0\ufe0f Phase 1 BLOCKED for round {round_id} ({track_name}): {exc} "
+            "Please run `/track config` for this track before the T\u22125d window expires."
+        )
+        log.error(err_msg)
+        await bot.output_router.post_log(row["server_id"], err_msg)
         return
 
-    rand1 = random.randint(1, 98)
-    rand2 = random.randint(1, 98)
-    rpc = compute_rpc(btrack, rand1, rand2)
+    # --- Draw Rpc from Beta distribution ---
+    try:
+        raw_draw, rpc = compute_rpc_beta(mu, sigma)
+    except ValueError as exc:
+        err_msg = (
+            f"\u26a0\ufe0f Phase 1 BLOCKED for round {round_id} ({track_name}): "
+            f"Beta sampling failed — {exc}"
+        )
+        log.error(err_msg)
+        await bot.output_router.post_log(row["server_id"], err_msg)
+        return
+
+    nu = mu * (1.0 - mu) / sigma ** 2 - 1.0
+    alpha = mu * nu
+    beta_param = (1.0 - mu) * nu
 
     payload = {
         "phase": 1,
         "round_id": round_id,
         "track": track_name,
-        "btrack": btrack,
-        "rand1": rand1,
-        "rand2": rand2,
+        "distribution": "beta",
+        "mu": mu,
+        "sigma": sigma,
+        "alpha": alpha,
+        "beta_param": beta_param,
+        "raw_draw": raw_draw,
         "rpc": rpc,
     }
 

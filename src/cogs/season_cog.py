@@ -19,7 +19,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from models.round import RoundFormat
-from models.track import TRACKS, TRACK_IDS
+from models.track import TRACK_DEFAULTS, TRACK_IDS
 from utils.channel_guard import channel_guard, admin_only
 
 log = logging.getLogger(__name__)
@@ -385,10 +385,10 @@ class SeasonCog(commands.Cog):
             )
             return
 
-        if track_name and track_name not in TRACKS:
+        if track_name and track_name not in TRACK_DEFAULTS:
             # Allow lookup by numeric ID (e.g. "27" → "United Kingdom")
             track_name = TRACK_IDS.get(track_name.zfill(2), track_name)
-        if track_name and track_name not in TRACKS:
+        if track_name and track_name not in TRACK_DEFAULTS:
             await interaction.response.send_message(
                 f"\u274c Unknown track `{track_name}`.\n"
                 f"Use `/round-add` and type a number or name — autocomplete will guide you.",

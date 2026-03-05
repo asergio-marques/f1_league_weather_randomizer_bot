@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import logging
 import math
+import random as _random
+import warnings
 
 log = logging.getLogger(__name__)
 
@@ -26,19 +28,61 @@ log = logging.getLogger(__name__)
 # Phase 1 – Rain Probability Coefficient
 # ---------------------------------------------------------------------------
 
-def compute_rpc(btrack: float, rand1: float, rand2: float) -> float:
-    """Compute Rpc = round((Btrack * R1 * R2) / 3025, 2), clamped to [0.0, 1.0].
+def compute_rpc_beta(mu: float, sigma: float) -> tuple[float, float]:
+    """Draw Rpc from a Beta distribution parameterised by *mu* and *sigma*.
 
-    rand1 and rand2 are expected in the range [1, 98] (integer dice).
-    Intermediate calculation is unclamped; clamping occurs at the end.
+    *mu* is the mean rain probability (0.0–1.0 exclusive).
+    *sigma* is the dispersion / standard deviation.
+
+    The Beta distribution parameters are derived internally:
+        nu      = mu * (1 - mu) / sigma**2 - 1
+        alpha   = mu * nu
+        beta_p  = (1 - mu) * nu
+
+    Returns:
+        (raw_draw, rpc) where *raw_draw* is the pre-clamp Beta variate and
+        *rpc* is clamped to [0.0, 1.0] and rounded to 2 decimal places.
+
+    Raises:
+        ValueError: if *sigma* is infeasible (sigma >= sqrt(mu*(1-mu))), producing
+                    non-positive alpha or beta_p, which would error in betavariate.
     """
+    feasibility_limit = math.sqrt(mu * (1.0 - mu))
+    if sigma <= 0.0 or sigma >= feasibility_limit:
+        raise ValueError(
+            f"Infeasible sigma={sigma!r} for mu={mu!r}. "
+            f"sigma must satisfy 0 < sigma < sqrt(mu*(1-mu)) = {feasibility_limit:.6f}."
+        )
+
+    nu = mu * (1.0 - mu) / sigma ** 2 - 1.0
+    alpha = mu * nu
+    beta_p = (1.0 - mu) * nu
+
+    raw_draw = _random.betavariate(alpha, beta_p)
+
+    if raw_draw < 0.0 or raw_draw > 1.0:
+        log.warning(
+            "compute_rpc_beta: raw_draw=%s outside [0.0, 1.0] (mu=%s, sigma=%s); clamping.",
+            raw_draw, mu, sigma,
+        )
+
+    rpc = round(max(0.0, min(1.0, raw_draw)), 2)
+    return (raw_draw, rpc)
+
+
+def compute_rpc(btrack: float, rand1: float, rand2: float) -> float:
+    """[DEPRECATED] Old Btrack formula — replaced by compute_rpc_beta.
+
+    Retained only so imports in tests surface as DeprecationWarning rather than
+    ImportError. Will be removed in a future cleanup pass.
+    """
+    warnings.warn(
+        "compute_rpc is deprecated; use compute_rpc_beta instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     raw = (btrack * rand1 * rand2) / 3025
     result = round(raw, 2)
-    if result < 0.0 or result > 1.0:
-        log.warning(
-            "compute_rpc: raw result %s outside [0.0, 1.0] (btrack=%s, r1=%s, r2=%s); clamping.",
-            result, btrack, rand1, rand2,
-        )
     return max(0.0, min(1.0, result))
 
 
