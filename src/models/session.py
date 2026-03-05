@@ -34,8 +34,8 @@ SESSIONS_BY_FORMAT: dict[RoundFormat, list[SessionType]] = {
     ],
     RoundFormat.SPRINT: [
         SessionType.SHORT_SPRINT_QUALIFYING,
-        SessionType.SHORT_FEATURE_QUALIFYING,
         SessionType.LONG_SPRINT_RACE,
+        SessionType.SHORT_FEATURE_QUALIFYING,
         SessionType.LONG_FEATURE_RACE,
     ],
     RoundFormat.MYSTERY: [],  # No phases for Mystery

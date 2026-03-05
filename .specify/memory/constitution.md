@@ -102,9 +102,10 @@ SYNC IMPACT REPORT
     ✅ tests/unit/test_reset_service.py  — regression test for FK reset (Bug 5)
   No deferred TODOs. Last Amended date remains 2026-03-03 (no principle changes).
 
-[2026-03-05 — New feature addition: constitution reuse pass]
-  - Constitution reused as-is; no new principles required for incremental feature work.
-  - Session intent: add a new feature to an already-existing SpecKit-driven codebase.
+[2026-03-05 — Bug fix: visual output correction pass]
+  - Constitution reused as-is; no principle amendments required for visual output bug fixes.
+  - Session intent: identify and correct bugs in the bot's visual/message output on an
+    already-existing SpecKit-driven codebase.
   - All placeholder tokens remain resolved; no bracket tokens present.
   - Version 1.1.0 consistent across all sections; no version bump warranted (no content
     amendments — reuse session only).
