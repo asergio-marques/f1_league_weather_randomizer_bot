@@ -8,7 +8,7 @@ description: "Task list for test mode bug fixes (branch 009-test-mode-bugfix)"
 **Input**: Design documents from `specs/009-test-mode-bugfix/`
 **Prerequisites**: plan.md ✅ spec.md ✅
 
-**Status**: All tasks complete — implementation committed on `009-test-mode-bugfix`.
+**Status**: All tasks complete — implementation committed on `009-test-mode-bugfix` (covers all 6 bugs).
 
 **Organization**: Tasks are grouped by user story (one bug per story) to enable
 independent review and verification.
@@ -94,15 +94,60 @@ that an admin without the role is rejected by `channel_guard`.
 
 ---
 
+## Phase 6: User Story 4 — Mystery Round Notice Dispatched via Test-Mode Advance (P1)
+
+**Goal**: `/test-mode advance` detects Mystery rounds with unsent notices, fires them,
+and marks the round as noticed. Subsequent calls skip noticed rounds.
+
+- [X] T007 [US4] Add `round_number: int` to `PhaseEntry`; widen `get_next_pending_phase`
+  query in `src/services/test_mode_service.py` to include all rounds; return
+  `phase_number=0` for unnoticed Mystery rounds (`phase1_done=0`); skip noticed ones
+- [X] T008 [US4] Add `phase_number == 0` dispatch block in `src/cogs/test_mode_cog.py`
+  advance command: call `run_mystery_notice`, set `phase1_done=1` on success, reply with
+  notice-sent ephemeral; on failure reply with error ephemeral without setting the flag
+- [X] T009 [US4] Update `tests/unit/test_test_mode_service.py`: rename
+  `test_mystery_rounds_excluded` to `test_mystery_round_notice_pending_returns_entry`
+  (assert `phase_number==0`); add `test_mystery_round_notice_done_excluded`
+
+**Checkpoint**: Bug 4 resolved — Mystery notices fire during test-mode advance.
+
+---
+
+## Phase 7: User Story 5 — Reset Clears `forecast_messages` Without FK Violation (P1)
+
+**Goal**: `/bot-reset` completes on any server that has Phase 1 data.
+
+- [X] T010 [US5] Add `DELETE FROM forecast_messages WHERE round_id IN ({ph})` after
+  `phase_results` delete and before `rounds` delete in `src/services/reset_service.py`
+- [X] T011 [US5] Add `test_reset_deletes_forecast_messages` regression test in
+  `tests/unit/test_reset_service.py`
+
+**Checkpoint**: Bug 5 resolved — reset transaction never raises FK constraint failed.
+
+---
+
+## Phase 8: User Story 6 — Advance Logs Show User-Visible Round Number (P3)
+
+**Goal**: Log lines include `round=<round_number>` and `id=<round_id>` for all dispatch
+paths.
+
+- [X] T012 [US6] Update log line in `src/cogs/test_mode_cog.py` advance command to emit
+  `round=<entry["round_number"]>` alongside `id=<entry["round_id"]>` for both mystery
+  and normal phase paths
+
+**Checkpoint**: Bug 6 resolved — logs are unambiguous to league managers.
+
+---
+
 ## Final Phase: Quality Gates
 
 **Purpose**: Confirm all fixes are consistent with the constitution and that the full
 test suite remains green.
 
 - [X] T005 [P] Add Sync Impact Report entry to `.specify/memory/constitution.md`
-  documenting all three bugs, their root causes, fixes, and which principles each
+  documenting all six bugs, their root causes, fixes, and which principles each
   correction restores
-- [X] T006 [P] Run `pytest tests/ -q` and verify all 162 tests pass with no regressions
+- [X] T006 [P] Run `pytest tests/ -q` and verify all 164 tests pass with no regressions
 
 **Checkpoint**: Branch ready for PR.
 
@@ -114,49 +159,60 @@ test suite remains green.
 
 - **Setup (Phase 1)**: No dependencies — can start immediately.
 - **Foundational (Phase 2)**: N/A — skipped.
-- **Bug Fixes (Phases 3–5)**: All depend only on Setup. Each targets a different file or
-  a clearly separate section of the same file; they may be worked in parallel:
-  - T002 is in `season_cog.py` — fully independent of T003/T004.
-  - T003 and T004 are both in `test_mode_cog.py` but in non-overlapping sections
-    (method body vs. class attribute). Sequential ordering is recommended to avoid
-    merge friction on the same file.
+- **Bug Fixes (Phases 3–8)**: All depend only on Setup. Phases 3–8 target different
+  files or non-overlapping sections; they may be worked in parallel with care:
+  - T002 (`season_cog.py`) — fully independent.
+  - T003/T004/T008/T012 are all in `test_mode_cog.py` — apply sequentially.
+  - T007 (`test_mode_service.py`) — independent of cog changes.
+  - T010 (`reset_service.py`) — independent.
+  - T009/T011 (test files) — apply after their corresponding service/cog changes.
 - **Quality Gates (Final Phase)**: Depend on all bug-fix phases being complete.
 
 ### User Story Dependencies
 
-- **US1 (T002)**: Independent of US2 and US3.
-- **US2 (T003)**: Independent of US1 and US3.
-- **US3 (T004)**: Independent of US1 and US2; same file as T003 — apply sequentially.
-- **Quality Gates (T005, T006)**: Depend on T002, T003, T004 all being complete.
+- **US1 (T002)**: Independent.
+- **US2 (T003)**: Independent; same file as T004/T008/T012 — apply sequentially.
+- **US3 (T004)**: Independent; same file as T003/T008/T012 — apply sequentially.
+- **US4 (T007, T008, T009)**: T008 depends on T007 (needs `phase_number=0` in entry).
+- **US5 (T010, T011)**: T011 depends on T010.
+- **US6 (T012)**: Depends on T007 (`round_number` field in `PhaseEntry`).
+- **Quality Gates (T005, T006)**: Depend on all T002–T012 being complete.
 
 ---
 
 ## Parallel Execution Examples
 
 ```text
-# T002 (season_cog.py) and T004 (test_mode_cog.py Group attr) are safe to parallelize:
-Task T002: next_round mystery guard in src/cogs/season_cog.py
-Task T004: guild_only + default_permissions in src/cogs/test_mode_cog.py
+# Independent across files:
+Task T002: next_round guard in season_cog.py
+Task T007: PhaseEntry + get_next_pending_phase in test_mode_service.py
+Task T010: forecast_messages delete in reset_service.py
 
-# T003 (test_mode_cog.py advance body) must be sequential with T004 (same file):
-Task T004 first → then Task T003
+# Sequential within test_mode_cog.py:
+T004 (Group attrs) → T003 (advance safety net) → T008 (mystery dispatch) → T012 (log line)
 
-# T005 and T006 can run in parallel once T002/T003/T004 are done:
-Task T005: constitution.md sync report
-Task T006: pytest tests/ -q
+# Tests after their service/cog:
+T009 after T007 | T011 after T010
+
+# Quality gates last:
+T005 + T006 in parallel once all bug tasks done
 ```
 
 ---
 
 ## Implementation Strategy
 
-All three bugs are isolated one-to-two-line edits in existing files. No new files, no
-new dependencies, no migrations. The recommended order for sequential work is:
+Recommended order for sequential work:
 
-1. **T001** — create feature docs (this file + plan.md + spec.md).
-2. **T002** — season_cog next_round fix (simplest, self-contained).
-3. **T004** — test_mode_cog Group attribute fix (class-level, top of file).
-4. **T003** — test_mode_cog advance safety net (method body, lower in file).
-5. **T005 + T006** — constitution sync and test verification.
+1. **T001** — create feature docs.
+2. **T002** — season_cog next_round fix (simplest).
+3. **T004** — test_mode_cog Group attribute fix.
+4. **T003** — test_mode_cog advance safety net.
+5. **T007** — test_mode_service PhaseEntry + widened query.
+6. **T008** — test_mode_cog mystery-notice dispatch.
+7. **T012** — test_mode_cog log line update.
+8. **T010** — reset_service forecast_messages delete.
+9. **T009, T011** — test updates.
+10. **T005 + T006** — constitution sync and test verification.
 
 Each fix can be independently validated before moving to the next.

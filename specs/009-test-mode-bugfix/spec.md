@@ -13,6 +13,7 @@
 - Q: Should a Glossary / Key Data Shapes subsection be added defining `PhaseEntry` fields, valid `phase_number` values, and the mystery-notice proxy? → A: Yes — add `### Glossary / Key Data Shapes` subsection.
 - Q: Should the spec explicitly address the scenario where `run_mystery_notice` raises after `phase1_done` is set (silent channel-send failure)? → A: Defer — current User Story 4 scenario 3 and the code-order guarantee (DB write only after successful notice send) are sufficient; no spec change needed.
 - Q: Should Bug 5 (reset + `forecast_messages` FK) have automated test coverage? → A: Yes — add a unit test requirement; the test must be written and passing before this spec is considered done.
+- Q: Should `plan.md` and `tasks.md` be updated to add entries for Bugs 4/5/6, all marked done? → A: Yes — update both files to keep spec/plan/tasks triad in sync per Principle VII.
 
 ## User Scenarios & Testing *(mandatory)*
 

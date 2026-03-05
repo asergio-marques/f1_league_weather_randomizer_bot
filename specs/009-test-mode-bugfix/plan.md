@@ -9,7 +9,7 @@ applies unchanged. Only the files listed in the Scope table below require edits.
 
 ## Summary
 
-Three bugs in the `002-test-mode` implementation are corrected:
+Six bugs in the `002-test-mode` implementation are corrected:
 
 1. **Mystery round "next round" leak** — `/season-status` searched all rounds (including
    Mystery) for the next incomplete round; since Mystery rounds never have phases set to
@@ -19,18 +19,34 @@ Three bugs in the `002-test-mode` implementation are corrected:
 2. **Season not ending after test-mode advance exhausts all phases** — When
    `/test-mode advance` was called after all non-Mystery phases were done,
    `get_next_pending_phase` returned `None` and the command returned "nothing to advance"
-   without checking whether the season was still live. If the Phase-3 runner's internal
-   `execute_season_end` call failed (e.g. timing race, past-dates fast-path, Discord API
-   transient error), the season remained stuck as `ACTIVE`. Fix: when the queue is empty
+   without checking whether the season was still live. Fix: when the queue is empty
    and an active season still exists, call `execute_season_end` as a safety net.
 
 3. **Test-mode commands gated to server admins instead of interaction-role holders** —
    The `test_mode` `app_commands.Group` had no `default_permissions` value,
    leaving Discord to apply any previously cached per-server restriction (which could be
-   `manage_guild`). Additionally, `guild_only` was not set, allowing the group to appear
-   usable in DMs. Fix: add `guild_only=True` and `default_permissions=None` to the
+   `manage_guild`). Fix: add `guild_only=True` and `default_permissions=None` to the
    Group definition so Discord resets permissions on the next tree sync, leaving
-   `channel_guard` (interaction-role check) as the sole gate.
+   `channel_guard` as the sole gate.
+
+4. **Mystery round notice skipped during test-mode advance** — APScheduler fires
+   `mystery_r{id}` jobs on a real-time schedule; in test mode the scheduler never fires,
+   so Mystery round notices were silently never sent. Fix: widen `get_next_pending_phase`
+   to include Mystery rounds, return a `phase_number=0` sentinel entry when the notice
+   has not yet been sent, and handle that sentinel in the advance command by calling
+   `run_mystery_notice` and setting `phase1_done = 1` on success.
+
+5. **Reset does not clear `forecast_messages`, causing FK violation** — `reset_service`
+   deleted `sessions` and `phase_results` but not `forecast_messages` before deleting
+   `rounds`. Because `forecast_messages` has `REFERENCES rounds(id)`, any reset after
+   Phase 1 had run raised `FOREIGN KEY constraint failed` and aborted. Fix: add
+   `DELETE FROM forecast_messages WHERE round_id IN (...)` after `phase_results` and
+   before `rounds` in the reset transaction.
+
+6. **Round DB id used in logs instead of user-visible round number** — Advance log lines
+   emitted the internal `rounds.id` primary key, which is meaningless to league managers
+   reading logs. Fix: add `round_number: int` to `PhaseEntry` and include both
+   `round=<round_number>` and `id=<round_id>` in the log line.
 
 ## Technical Context
 
@@ -42,7 +58,7 @@ Three bugs in the `002-test-mode` implementation are corrected:
 **Project Type**: Discord bot (event-driven, async)
 **Performance Goals**: No new hot paths introduced
 **Constraints**: No new slash commands; no schema migrations; no new dependencies
-**Scale/Scope**: Two files modified; no new files created
+**Scale/Scope**: Five source files modified; two test files updated; no new files created
 
 ## Constitution Check
 
@@ -50,9 +66,9 @@ Three bugs in the `002-test-mode` implementation are corrected:
 |-----------|-------------|--------|
 | I — Trusted Configuration Authority | Bug 3 fix restores correct Tier-1 enforcement: interaction-role check in `channel_guard` gates all three `/test-mode` subcommands; no admin-only escalation | ✅ PASS |
 | II — Multi-Division Isolation | No cross-division logic touched | ✅ PASS |
-| III — Resilient Schedule Management | Season-end safety net follows existing `execute_season_end` atomicity; no partial-update path introduced | ✅ PASS |
-| IV — Three-Phase Weather Pipeline | Mystery round exclusion aligns with the spec: Mystery rounds must never have phases executed or reported as pending | ✅ PASS |
-| V — Observability & Change Audit Trail | Season-end safety net posts the existing completion message to the log channel before clearing data; no silent mutations | ✅ PASS |
+| III — Resilient Schedule Management | Season-end safety net follows existing `execute_season_end` atomicity; no partial-update path introduced. Mystery notice dispatch mirrors the scheduler path; `phase1_done` is set only after a successful send | ✅ PASS |
+| IV — Three-Phase Weather Pipeline | Mystery round exclusion aligns with the spec: Mystery rounds must never have phases executed or reported as pending. Mystery notice is a pre-pipeline signal, not a phase | ✅ PASS |
+| V — Observability & Change Audit Trail | Season-end safety net posts the existing completion message to the log channel. Advance log lines now include user-visible round number alongside DB id for triage | ✅ PASS |
 | VI — Simplicity & Focused Scope | All changes are minimal targeted corrections; no scope expansion | ✅ PASS |
 | VII — Output Channel Discipline | No new output channels used; season-end posts to the configured log channel only | ✅ PASS |
 
@@ -63,8 +79,12 @@ Three bugs in the `002-test-mode` implementation are corrected:
 | File | Change |
 |------|--------|
 | `src/cogs/season_cog.py` | Add `r.format != RoundFormat.MYSTERY` guard to `next_round` generator in `season_status` |
-| `src/cogs/test_mode_cog.py` | Replace bare `entry is None` early-return with season-end safety net; add `guild_only=True` + `default_permissions=None` to `test_mode` Group |
-| `.specify/memory/constitution.md` | Add Sync Impact Report entry documenting the three bugs and fixes |
+| `src/cogs/test_mode_cog.py` | Season-end safety net; `guild_only=True` + `default_permissions=None`; `phase_number=0` mystery-notice dispatch; log lines use `round_number` |
+| `src/services/test_mode_service.py` | Add `round_number` to `PhaseEntry`; widen `get_next_pending_phase` to include Mystery rounds; return `phase_number=0` sentinel |
+| `src/services/reset_service.py` | Add `DELETE FROM forecast_messages` after `phase_results`, before `rounds` |
+| `tests/unit/test_test_mode_service.py` | Rename + rewrite mystery exclusion test; add `test_mystery_round_notice_done_excluded` |
+| `tests/unit/test_reset_service.py` | Add `test_reset_deletes_forecast_messages` regression test |
+| `.specify/memory/constitution.md` | Add Sync Impact Report entry documenting all six bugs and fixes |
 
 ## Project Structure
 
@@ -85,9 +105,18 @@ targeted bug-fix with no new data model, no new API surface, and no research pha
 ```text
 src/
 ├── cogs/
-│   ├── season_cog.py        ← Bug 1 fix (next_round mystery exclusion)
-│   └── test_mode_cog.py     ← Bug 2 fix (advance safety net) + Bug 3 fix (permissions)
+│   ├── season_cog.py             ← Bug 1 fix (next_round mystery exclusion)
+│   └── test_mode_cog.py          ← Bug 2+3 fix (safety net, permissions)
+│                                    + Bug 4 fix (mystery notice dispatch)
+│                                    + Bug 6 fix (round_number in logs)
+├── services/
+│   ├── test_mode_service.py      ← Bug 4 fix (PhaseEntry.round_number + phase_number=0)
+│   └── reset_service.py          ← Bug 5 fix (forecast_messages delete)
+tests/
+└── unit/
+    ├── test_test_mode_service.py  ← Updated tests for Bug 4
+    └── test_reset_service.py      ← Regression test for Bug 5
 .specify/
 └── memory/
-    └── constitution.md      ← Sync Impact Report entry
+    └── constitution.md            ← Sync Impact Report entry
 ```
