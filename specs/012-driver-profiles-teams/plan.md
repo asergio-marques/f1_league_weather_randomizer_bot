@@ -1,104 +1,126 @@
-# Implementation Plan: [FEATURE]
+# Implementation Plan: Driver Profiles, Teams & Season Enhancements
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
-
-**Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
+**Branch**: `012-driver-profiles-teams` | **Date**: 2026-03-06 | **Spec**: [spec.md](spec.md)  
+**Input**: Feature specification from `/specs/012-driver-profiles-teams/spec.md`
 
 ## Summary
 
-[Extract from feature spec: primary requirement + technical approach from research]
+Introduce two new persisted data structures (DriverProfile with state machine, and team
+management via DefaultTeam / TeamInstance / TeamSeat) plus targeted enhancements to the
+existing season/division model (season counter, division tier, tier-sequential approval gate,
+expanded season review output).
+
+New Discord commands are strictly limited to those marked `<NEW COMMAND>` in the source
+specification: `/driver reassign` (User ID swap), `/test-mode set-former-driver` (flag
+override), `/team default` (server default team CRUD), and `/team season` (season-scoped team
+CRUD during SETUP). All other changes extend existing command behaviour or add background
+enforcement logic.
+
+Implementation approach: additive SQLite migrations for the new tables and columns, new model
+dataclasses, new service classes (`DriverService`, `TeamService`) following the existing
+service pattern, and a new `DriverCog` plus extensions to `SeasonCog` and `TestModeCog`.
 
 ## Technical Context
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
-
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]  
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Language/Version**: Python 3.8+ (3.12 recommended); already in use — no change  
+**Primary Dependencies**: discord.py ≥ 2.0, aiosqlite ≥ 0.19, APScheduler ≥ 3.10,
+python-dotenv — all already in `requirements.txt`; no new packages required  
+**Storage**: SQLite via aiosqlite; async connection managed by `src/db/database.py`;
+migrations applied automatically on startup from `src/db/migrations/`  
+**Testing**: pytest + pytest-asyncio; existing suite in `tests/unit/` and `tests/integration/`  
+**Target Platform**: Linux server (or any platform running the bot process); no change  
+**Project Type**: Discord bot (event-driven async Python application)  
+**Performance Goals**: All bot commands must acknowledge within 3 seconds (Constitution
+Bot Behavior Standards). New DB access patterns are single-row lookups or short
+range-scans — no bulk aggregations. SQLite at current scale (~tens to low hundreds of
+drivers per server) is sufficient per constitution performance analysis.  
+**Constraints**: No new Python packages. All mutations transactional and reversible. FK
+constraints enforced (PRAGMA foreign_keys = ON already in `get_connection`). New commands
+must use the `/domain action` subcommand-group convention (Constitution Bot Behavior
+Standards) — existing `test-mode` group is grandfathered pending migration.  
+**Scale/Scope**: Per-server. New table row counts are O(drivers) for profiles,
+O(teams × divisions × seasons) for seats — both small. No indexes beyond those already
+specified in the data model are needed at this scale.
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+| Principle | Status | Notes |
+|-----------|--------|-------|
+| **I** — Two-tier access (interaction role / admin role) | ✅ PASS | All four new commands use `@admin_only` via the existing `channel_guard` decorator. State-machine transitions triggered by driver-facing flows will also gate on interaction role. No implicit super-user. |
+| **II** — Multi-division isolation | ✅ PASS | TeamInstance and TeamSeat are keyed by (division_id). DriverProfile is server-scoped (not division-scoped) per spec, which is correct — a driver may participate in multiple divisions. Division-level season data joins through the division FK. |
+| **III** — Resilient schedule management | ✅ PASS | No changes to the round/schedule pipeline. |
+| **IV** — Three-phase weather pipeline | ✅ PASS | No changes to phase execution or Mystery round handling. |
+| **V** — Observability & change audit trail | ✅ PASS | All four new commands and every state-machine transition MUST append to `audit_entries`. User ID reassignment, `former_driver` flag overrides, and team mutations are all covered in FR-008, FR-009, and the audit trail. |
+| **VI** — Incremental scope expansion | ✅ PASS | Driver profiles, teams, and season enhancements are all formally in-scope domains as of Constitution v2.0.0. |
+| **VII** — Output channel discipline | ✅ PASS | All new command responses are ephemeral. No new public channels are introduced. Season review is an existing ephemeral admin command. |
+| **VIII** — Driver profile integrity | ✅ PASS | State machine, former_driver immutability, deletion rule, User ID reassignment, and test-mode overrides are all directly specified in FR-001–FR-011. |
+| **IX** — Team & division structural integrity | ✅ PASS | Reserve invariant, 2-seat default, division isolation, sequential tier gate, and tier uniqueness are all directly specified in FR-012–FR-025. |
+
+**Post-Phase-1 re-check**: All gates remain green after data-model and contract design —
+see `data-model.md` and `contracts/` for detailed entity and command schemas.
 
 ## Project Structure
 
 ### Documentation (this feature)
 
 ```text
-specs/[###-feature]/
-├── plan.md              # This file (/speckit.plan command output)
-├── research.md          # Phase 0 output (/speckit.plan command)
-├── data-model.md        # Phase 1 output (/speckit.plan command)
-├── quickstart.md        # Phase 1 output (/speckit.plan command)
-├── contracts/           # Phase 1 output (/speckit.plan command)
-└── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
+specs/012-driver-profiles-teams/
+├── plan.md         # This file
+├── research.md     # Phase 0 output
+├── data-model.md   # Phase 1 output
+├── quickstart.md   # Phase 1 output
+├── contracts/      # Phase 1 output
+│   └── commands.md
+└── tasks.md        # Phase 2 output (created by /speckit.tasks, not this command)
 ```
 
 ### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
 src/
+├── cogs/
+│   ├── season_cog.py           # MODIFIED — division add/duplicate gain tier param;
+│   │                           #   season approve gains tier-sequential gate;
+│   │                           #   season review output extended with team rosters
+│   ├── test_mode_cog.py        # MODIFIED — new /test-mode set-former-driver subcommand
+│   └── driver_cog.py           # NEW — /driver reassign
+│
+├── db/
+│   └── migrations/
+│       └── 008_driver_profiles_teams.sql  # NEW — all new tables + column additions
+│
 ├── models/
+│   ├── division.py             # MODIFIED — add tier: int field
+│   ├── season.py               # MODIFIED — add season_number: int field
+│   ├── server_config.py        # MODIFIED — add previous_season_number: int field
+│   ├── driver_profile.py       # NEW — DriverProfile dataclass + DriverState enum
+│   └── team.py                 # NEW — DefaultTeam, TeamInstance, TeamSeat dataclasses
+│
 ├── services/
-├── cli/
-└── lib/
+│   ├── season_service.py       # MODIFIED — season number logic; division tier;
+│   │                           #   tier validation on approve; team auto-creation;
+│   │                           #   expanded review query
+│   ├── driver_service.py       # NEW — DriverService (state machine, CRUD, reassign)
+│   └── team_service.py         # NEW — TeamService (default CRUD, season CRUD)
+│
+└── utils/
+    └── message_builder.py      # MODIFIED — season review roster formatting
 
 tests/
-├── contract/
-├── integration/
-└── unit/
-
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
-
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
-
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
-
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+├── unit/
+│   ├── test_driver_service.py          # NEW — state machine + deletion rule
+│   ├── test_team_service.py            # NEW — Reserve invariant, default/season CRUD
+│   └── test_season_tier_validation.py  # NEW — tier sequential gate
+└── integration/
+    └── test_driver_profiles_teams.py   # NEW — end-to-end across service/DB
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+**Structure Decision**: Single project layout (existing `src/` root). No new top-level
+directories. Follows the established pattern of one model file per entity group, one
+service class per domain, one cog per command group.
 
 ## Complexity Tracking
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
-
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+> No Constitution violations. Table is empty — all design choices comply with Principles I–IX.
