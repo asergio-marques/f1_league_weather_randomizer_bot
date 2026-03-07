@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS signup_module_settings (
                                 ON DELETE CASCADE,
     nationality_required    INTEGER NOT NULL DEFAULT 1, -- bool
     time_type               TEXT    NOT NULL DEFAULT 'TIME_TRIAL',
-        -- enum: 'TIME_TRIAL' | 'HOTLAP'
+        -- enum: 'TIME_TRIAL' | 'SHORT_QUALIFICATION'
     time_image_required     INTEGER NOT NULL DEFAULT 1  -- bool
 );
 
@@ -133,7 +133,7 @@ class Division:
 from dataclasses import dataclass, field
 from typing import Literal
 
-TimeType = Literal["TIME_TRIAL", "HOTLAP"]
+TimeType = Literal["TIME_TRIAL", "SHORT_QUALIFICATION"]
 
 @dataclass
 class SignupModuleConfig:

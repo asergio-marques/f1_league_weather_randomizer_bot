@@ -451,6 +451,18 @@ state and verify the confirmation prompt appears before closure.
 - **SC-006**: All module enable, disable, and configuration change events appear as entries
   in the audit trail, enabling full reconstruction of the server's module history.
 
+## Channel Categories Introduced
+
+Per Principle VII (Output Channel Discipline), the following module-introduced channel categories are formally registered by this feature:
+
+| Channel Category | Configured via | Who may write (admin messages) | Who may press signup button |
+|-----------------|---------------|-------------------------------|----------------------------|
+| General signup channel | `/module enable signup` → `channel` parameter | Server admins and trusted role (tier 2) only | Members holding `base_role` |
+
+The signup channel serves as both the public-facing signup surface (signup button + open/close announcements) and the location where admin confirmation messages appear after open/close operations.
+
+---
+
 ## Assumptions
 
 - The bot already holds the necessary Discord permission scopes (`Manage Channels` or
@@ -470,3 +482,10 @@ state and verify the confirmation prompt appears before closure.
   disabled will need to be amended with a channel before the weather module can be enabled.
 - Time slot day/times are stored and displayed in UTC (FR-023), matching the bot's existing
   convention for all datetime values.
+- The slot mutation commands (`/signup time-slot add`, `/signup time-slot remove`), signup
+  open/close commands (`/signup enable`, `/signup disable`), and settings toggles are all
+  implemented with the `@admin_only` decorator (requiring `MANAGE_GUILD`). While the upstream
+  specification describes these as accessible to "trusted roles (tier 2, non-admins)", the
+  current bot convention has no separate `trusted_only` decorator distinct from `admin_only`.
+  This narrows the access tier to server administrators. If a dedicated tier-2 decorator is
+  introduced in a future feature, these commands should be migrated accordingly.

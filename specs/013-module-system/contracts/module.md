@@ -28,6 +28,16 @@
 |------|------|----------|-------------|
 | `module_name` | `Choice[str]` | Yes | `"weather"` or `"signup"` |
 
+**Additional parameters when `module_name == "signup"` (required for that branch):**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `channel` | `discord.TextChannel` | Yes (signup only) | The text channel to use as the signup channel |
+| `base_role` | `discord.Role` | Yes (signup only) | Role held by all members eligible to sign up (view-only overwrite applied) |
+| `signed_up_role` | `discord.Role` | Yes (signup only) | Role granted on successful signup completion (stored for future wizard use) |
+
+These three parameters are declared as optional on the slash command (Discord does not support conditional required params), but the command handler returns an error if any are missing when `module_name == "signup"`.
+
 ### Preconditions
 
 **Common (both modules)**:

@@ -48,7 +48,7 @@
 ### Implementation for User Story 1
 
 - [ ] T010 [US1] Create `src/cogs/module_cog.py` with `ModuleCog` class; add `/module` app_commands group decorated with `@channel_guard @admin_only`; add `enable` and `disable` subcommands each accepting a `module_name: app_commands.Choice[str]` with values `"weather"` and `"signup"`; wire `bot.module_service`
-- [ ] T011 [US1] Implement weather-enable logic in `ModuleCog.enable` (weather branch): (1) guard already-enabled; (2) pre-validate all active-season divisions have non-null `forecast_channel_id` — list offenders and fail if any missing (FR-012); (3) defer interaction; (4) execute overdue phases sequentially via existing phase service callbacks (Phase 1 → 2 → 3 per round, skipping completed and Mystery rounds); (5) call `SchedulerService.schedule_all_rounds()` for future horizons; (6) call `module_service.set_weather_enabled(server_id, True)`; (7) emit audit entry + post log channel confirmation; rollback flag on any failure
+- [ ] T011 [US1] Implement weather-enable logic in `ModuleCog.enable` (weather branch): (1) guard already-enabled; (2) pre-validate all active-season divisions have non-null `forecast_channel_id` — list offenders and fail if any missing (FR-012); (3) defer interaction; (4) execute overdue phases sequentially via existing phase service callbacks (Phase 1 → 2 → 3 per round, skipping completed and Mystery rounds); (5) call `SchedulerService.schedule_all_rounds()` for future horizons; (6) within a single `aiosqlite` transaction: call `module_service.set_weather_enabled(server_id, True)` and write the audit entry (Principle X rule 2 — enable atomicity); (7) post log channel confirmation; on any failure: call `scheduler_service.cancel_all_weather_for_server(server_id)` to purge any partially-created jobs, then reset the enabled flag to False (full rollback — no partial job/flag state left)
 - [ ] T012 [US1] Implement weather-disable logic in `ModuleCog.disable` (weather branch): (1) guard already-disabled; (2) call `scheduler_service.cancel_all_weather_for_server(server_id)`; (3) call `module_service.set_weather_enabled(server_id, False)`; (4) emit audit entry + post log channel confirmation
 - [ ] T013 [US1] Gate `SchedulerService.schedule_round()` behind a weather-module check in `src/services/scheduler_service.py`: before calling `add_job`, check `module_service.is_weather_enabled(server_id)` derived from the round's season's server; skip silently if disabled
 - [ ] T014 [US1] Gate `on_ready` scheduler recovery in `src/bot.py` (`_recover_missed_phases`): wrap the phase-recovery loop with a check that `weather_module_enabled` is true for the server before arming jobs
@@ -82,11 +82,11 @@
 
 ### Implementation for User Story 3
 
-- [ ] T019 Create `src/cogs/signup_cog.py` with `SignupCog` class; add `/signup` app_commands group; add `interaction_check` that verifies signup module is enabled (uses `bot.module_service.is_signup_enabled(server_id)`) for all commands except `config channel` and `config roles`; wire `bot.signup_module_service`
-- [ ] T020 [P] [US3] Implement `/signup nationality toggle` in `SignupCog` (decorated `@channel_guard @admin_only`): fetch-or-create settings row, flip `nationality_required`, save, reply ephemeral with new value
-- [ ] T021 [P] [US3] Implement `/signup time-type toggle` in `SignupCog` (decorated `@channel_guard @admin_only`): present "Time Trial" and "Short Qualification" as `discord.ui.View` buttons; on selection persist `time_type` in settings, reply ephemeral with chosen value
-- [ ] T022 [P] [US3] Implement `/signup time-image toggle` in `SignupCog` (decorated `@channel_guard @admin_only`): fetch-or-create settings row, flip `time_image_required`, save, reply ephemeral with new value
-- [ ] T023 [US3] Implement `/signup config view` in `SignupCog` (no module-enabled gate): return ephemeral embed showing channel, base role, signed-up role, all three settings, and signups-open state; handles not-configured case gracefully
+- [ ] T019 Create `src/cogs/signup_cog.py` with `SignupCog` class; add `/signup` app_commands group; add `interaction_check` that verifies signup module is enabled (uses `bot.module_service.is_signup_enabled(server_id)`) for all commands except `config channel`, `config roles`, and `config view` (these three operate on pre-enable configuration and must never be module-gated); wire `bot.signup_module_service`
+- [ ] T020 [P] [US3] Implement `/signup nationality toggle` in `SignupCog` (decorated `@channel_guard @admin_only`): fetch-or-create settings row, flip `nationality_required`, save, emit `SIGNUP_SETTINGS_CHANGE` audit entry (field: `nationality_required`, old/new value), reply ephemeral with new value
+- [ ] T021 [P] [US3] Implement `/signup time-type toggle` in `SignupCog` (decorated `@channel_guard @admin_only`): present "Time Trial" and "Short Qualification" as `discord.ui.View` buttons; on selection persist `time_type` in settings, emit `SIGNUP_SETTINGS_CHANGE` audit entry (field: `time_type`, old/new value), reply ephemeral with chosen value
+- [ ] T022 [P] [US3] Implement `/signup time-image toggle` in `SignupCog` (decorated `@channel_guard @admin_only`): fetch-or-create settings row, flip `time_image_required`, save, emit `SIGNUP_SETTINGS_CHANGE` audit entry (field: `time_image_required`, old/new value), reply ephemeral with new value
+- [ ] T023 [US3] Implement `/signup config view` in `SignupCog` (no module-enabled gate): return ephemeral embed showing channel, base role, signed-up role, all three settings, and signups-open state; if no `signup_module_config` row exists (module never enabled), display all fields as "Not set" and settings as their defaults — do not error
 
 **Checkpoint**: US3 complete — all three settings toggleable and inspectable via config view.
 
@@ -100,8 +100,8 @@
 
 ### Implementation for User Story 4
 
-- [ ] T024 [US4] Implement `/signup time-slot add <day> <time>` in `SignupCog` (decorated `@channel_guard @admin_only`): (1) guard signups-open (FR-026); (2) parse `time` — accept `HH:MM` 24h and `h:mm AM/PM` 12h, normalise to `HH:MM`, error if unparseable; (3) translate `day` Choice to ISO integer (Mon=1…Sun=7); (4) call `signup_module_service.add_slot(server_id, day_of_week, time_hhmm)` — handles UNIQUE constraint → "already exists" error; (5) reply ephemeral with re-queried ranked slot list
-- [ ] T025 [US4] Implement `/signup time-slot remove <slot_id>` in `SignupCog` (decorated `@channel_guard @admin_only`): (1) guard signups-open; (2) guard no-slots-exist (FR-025); (3) call `signup_module_service.remove_slot_by_rank(server_id, slot_id)` — raises on out-of-range; (4) reply ephemeral with updated ranked slot list (or "no slots" if empty)
+- [ ] T024 [US4] Implement `/signup time-slot add <day> <time>` in `SignupCog` (decorated `@channel_guard @admin_only`): (1) guard signups-open (FR-026); (2) parse `time` — accept `HH:MM` 24h and `h:mm AM/PM` 12h, normalise to `HH:MM`, error if unparseable; (3) translate `day` Choice to ISO integer (Mon=1…Sun=7); (4) call `signup_module_service.add_slot(server_id, day_of_week, time_hhmm)` — handles UNIQUE constraint → "already exists" error; (5) emit `SIGNUP_SLOT_ADD` audit entry (day_of_week, time_hhmm, resulting slot_id); (6) reply ephemeral with re-queried ranked slot list
+- [ ] T025 [US4] Implement `/signup time-slot remove <slot_id>` in `SignupCog` (decorated `@channel_guard @admin_only`): (1) guard signups-open; (2) guard no-slots-exist (FR-025); (3) call `signup_module_service.remove_slot_by_rank(server_id, slot_id)` — raises on out-of-range; (4) emit `SIGNUP_SLOT_REMOVE` audit entry (removed slot_id, day_of_week, time_hhmm); (5) reply ephemeral with updated ranked slot list (or "no slots configured" if empty)
 - [ ] T026 [P] [US4] Implement `/signup time-slot list` in `SignupCog`: call `signup_module_service.get_slots(server_id)`, reply ephemeral with formatted list (`#N — DayName HH:MM UTC`) or "no slots configured"
 
 **Checkpoint**: US4 complete — slot add/remove/list works with correct chronological ranking and mutation guards.
@@ -116,7 +116,7 @@
 
 ### Implementation for User Story 5
 
-- [ ] T027 [US5] Implement `/signup enable [track_ids]` in `SignupCog` (decorated `@channel_guard @admin_only`): (1) guard signups-already-open; (2) guard no-slots-configured (FR-029); (3) validate each supplied track ID against `TrackService` (or existing track DB); (4) store `selected_tracks_json` and set `signups_open=1` via `signup_module_service.set_window_open()`; (5) post signup button (`discord.ui.Button`) + informational message to `signup_channel_id` listing selected tracks, time type, and image-proof requirement per FR-030; (6) persist `signup_button_message_id`; (7) emit `SIGNUP_OPEN` audit entry; reply ephemeral confirmation
+- [ ] T027 [US5] Implement `/signup enable [track_ids]` in `SignupCog` (decorated `@channel_guard @admin_only`): (1) guard signups-already-open; (2) guard no-slots-configured (FR-029); (3) validate each supplied track ID against `TrackService` (or existing track DB); (4) store `selected_tracks_json` and set `signups_open=1` via `signup_module_service.set_window_open()`; (5) post signup button (`discord.ui.Button`) + informational message to `signup_channel_id` per FR-030: list selected tracks by name (if zero tracks provided, display "No tracks specified" — not a blank/missing field), time type label, and whether image proof is required; (6) persist `signup_button_message_id`; (7) emit `SIGNUP_OPEN` audit entry; reply ephemeral confirmation
 - [ ] T028 [US5] Implement `/signup disable` in `SignupCog` (decorated `@channel_guard @admin_only`): (1) guard signups-not-open; (2) query active-season drivers in `PENDING_SIGNUP_COMPLETION`, `PENDING_ADMIN_APPROVAL`, `PENDING_DRIVER_CORRECTION` states for this server; (3) if none → immediate close (step 5); (4) if any → present ephemeral `discord.ui.View` with driver list + Confirm / Cancel buttons (5-minute timeout); on Confirm → execute forced-close sub-flow; on Cancel / timeout → no state change
 - [ ] T029 [US5] Implement the forced-close sub-flow (used by both `/signup disable` confirm-path and `module disable signup`): (a) bulk-transition all in-progress drivers to `NOT_SIGNED_UP` using `driver_service` (applies former-driver deletion rules); (b) fetch and delete `signup_button_message_id` from signup channel (graceful `NotFound`); (c) post "signups are closed" message to signup channel; (d) call `signup_module_service.set_window_closed(server_id)`; (e) emit `SIGNUP_CLOSE` or `SIGNUP_FORCE_CLOSE` audit entry
 
@@ -128,9 +128,10 @@
 
 - [ ] T030 [P] Write unit tests in `tests/unit/test_module_service.py`: cover `is_weather_enabled`, `is_signup_enabled`, `set_weather_enabled` (enable/disable/idempotency), `set_signup_enabled` (enable/disable/idempotency)
 - [ ] T031 [P] Write unit tests in `tests/unit/test_signup_module_service.py`: cover slot add (happy path, duplicate, signups-open guard), slot remove (happy path, out-of-range, no-slots guard), chronological ranking after add/remove, open/close window state transitions
-- [ ] T032 [P] Write unit tests for new `DriverService` transitions in `tests/unit/test_driver_service.py` (or extend existing): `PENDING_SIGNUP_COMPLETION → NOT_SIGNED_UP` and `PENDING_DRIVER_CORRECTION → NOT_SIGNED_UP` both succeed; verify invalid transitions from those states still raise
+- [ ] T032 [P] Write unit tests for new `DriverService` transitions in `tests/unit/test_driver_service.py` (or extend existing): `PENDING_SIGNUP_COMPLETION → NOT_SIGNED_UP` and `PENDING_DRIVER_CORRECTION → NOT_SIGNED_UP` both succeed; verify invalid transitions from those states still raise; additionally assert that `PENDING_ADMIN_APPROVAL → NOT_SIGNED_UP` (defined in feature 012) is present and passes — T029 depends on all three transitions existing
 - [ ] T033 Verify migration `009_module_system.sql` applies cleanly on top of `008_driver_profiles_teams.sql`: run full migration chain in a temp DB; assert all tables exist, `forecast_channel_id` is nullable, `server_configs` has both new boolean columns defaulting to 0
-- [ ] T034 [P] Audit all existing tests that create `Division` objects or query `division add` — update any that pass a `forecast_channel` unconditionally to handle the now-optional field
+- [ ] T034 [P] Update existing tests that create `Division` objects or stub `division add` with a `forecast_channel` argument — known affected files: `tests/unit/test_season_service.py`, `tests/unit/test_division_service.py` (if exists), and any integration fixtures in `tests/integration/` that seed division rows; make `forecast_channel` optional (pass `None` when weather module disabled in test context)
+- [ ] T035 [P] Write unit/integration test for FR-010 in `tests/unit/test_module_service.py` or `tests/integration/`: enable weather module, then approve the season; assert `SchedulerService.schedule_round()` is called for each non-Mystery round; confirms the season-approve → scheduling gate works correctly under the new module flag
 
 ---
 
@@ -150,7 +151,7 @@ Phase 6 (US4):  T024, T025, T026  (all require T019 cog skeleton and T006 servic
 
 Phase 7 (US5):  T027 → T028 → T029  (T029 is a shared sub-flow, implemented once and called by T028 and T018)
 
-Phase 8:        T030–T034  (all after all story phases complete)
+Phase 8:        T030–T035  (all after all story phases complete)
 ```
 
 ### User Story Completion Order
@@ -172,7 +173,7 @@ US2 is complete (both only require the `SignupCog` skeleton and `SignupModuleSer
 
 **Within US3**, T020, T021, T022, T023 can all be worked in parallel (different commands, same cog file — coordinate on cog file ownership).
 
-**Within Phase 8**, T030, T031, T032, T034 can all be worked in parallel (different test files).
+**Within Phase 8**, T030, T031, T032, T034, T035 can all be worked in parallel (different test files).
 
 ---
 
@@ -203,5 +204,5 @@ module is fully operational under modular control with no regressions to existin
 | Phase 5 | T019–T023 | US3 (5 tasks) |
 | Phase 6 | T024–T026 | US4 (3 tasks) |
 | Phase 7 | T027–T029 | US5 (3 tasks) |
-| Phase 8: Polish | T030–T034 | — |
-| **Total** | **34 tasks** | **5 user stories** |
+| Phase 8: Polish | T030–T035 | — |
+| **Total** | **35 tasks** | **5 user stories** |

@@ -98,8 +98,8 @@ Reply ephemeral: _"✅ Nationality requirement: **ON** / **OFF**."_
 ## `/signup time-type toggle`
 
 Cycles `signup_module_settings.time_type`:  
-`TIME_TRIAL → HOTLAP → TIME_TRIAL → …`  
-Reply ephemeral: _"✅ Time type: **Time Trial** / **Hotlap**."_
+`TIME_TRIAL → SHORT_QUALIFICATION → TIME_TRIAL → …`  
+Reply ephemeral: _"✅ Time type: **Time Trial** / **Short Qualification**."`
 
 ### Precondition
 - Signup module enabled.
@@ -191,7 +191,7 @@ Opens the signup window. Posts the signup button to the signup channel.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `track_ids` | `str` (space-separated) | No | Track IDs for the open window. If omitted, the track selection step is skipped (single-track signup or open for any). At least one required if settings require a track selection (see FR-028). |
+| `track_ids` | `str` | No | Space- or comma-separated track ID string. If omitted or empty string, the signup window opens with zero tracks selected. Discord slash commands do not support variable-length arrays; the value is a single optional `str` parsed by the service layer. |
 
 ### Preconditions
 - `signups_open == False`.
@@ -247,3 +247,8 @@ The following signup commands emit `AuditEntry` records:
 | `/signup enable` | `"SIGNUP_OPEN"` |
 | `/signup disable` | `"SIGNUP_CLOSE"` |
 | `/module disable signup` (forced close) | `"SIGNUP_FORCE_CLOSE"` |
+| `/signup nationality toggle` | `"SIGNUP_SETTINGS_CHANGE"` |
+| `/signup time-type toggle` | `"SIGNUP_SETTINGS_CHANGE"` |
+| `/signup time-image toggle` | `"SIGNUP_SETTINGS_CHANGE"` |
+| `/signup time-slot add` | `"SIGNUP_SLOT_ADD"` |
+| `/signup time-slot remove` | `"SIGNUP_SLOT_REMOVE"` |
