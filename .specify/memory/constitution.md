@@ -1,6 +1,47 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+[2026-03-07 — v2.0.0 → v2.1.0: Modular architecture ratification + full-league expansion vision]
+  Version change    : 2.0.0 → 2.1.0
+  Bump rationale    : MINOR — New Principle X added (Modular Feature Architecture). Principle VI
+                      materially expanded to formally declare the incremental path toward full
+                      league management and reclassify previously "out of scope" domains as
+                      "planned future scope". Principle VII extended with a module-channel clause
+                      to resolve a forward incoherency with the signup-wizard channel model.
+  Modified principles:
+    - Principle VI (Incremental Scope Expansion) — "Out of scope" list replaced with "Planned
+      future scope" language; bot's strategic direction toward encompassing entire league business
+      rules explicitly declared; ratification gate retained.
+    - Principle VII (Output Channel Discipline) — Added clause permitting module-introduced
+      channel categories when each is explicitly documented and registered with the same
+      discipline as primary channels.
+  Added sections    :
+    - Principle X: Modular Feature Architecture (NEW)
+  Removed sections  : None
+  Templates confirmed aligned:
+    ✅ .specify/templates/plan-template.md      — Constitution Check gate is dynamic; no
+         hardcoded principle list; no changes needed.
+    ✅ .specify/templates/spec-template.md      — generic; no stale references.
+    ✅ .specify/templates/tasks-template.md     — generic; aligns with I–X.
+    ✅ .specify/templates/agent-file-template.md — generic placeholders; no stale names.
+    ✅ .specify/templates/checklist-template.md  — no impact.
+  Resolved incoherencies:
+    - Principle VII vs. signup-wizard channels: resolved by new module-channel clause in
+      Principle VII. Per-driver signup channels and the general signup channel are module-
+      introduced categories and must be documented in the signup module specification.
+  Deferred TODOs    :
+    - TODO(BAN_STATE_NAMING): league-functionality-specification.md describes the "Season Banned"
+      driver state as lasting "for a number of races equal to the length of the season they were
+      race banned for." This conflates race-ban severity with season-ban state naming. The
+      specification must clarify whether (a) "Season Banned" covers the remainder of the active
+      season regardless of offense, or (b) a separate "Race Banned" state is needed for
+      timed-race bans. Resolution must be agreed before the ban-management feature is ratified.
+    - Race results recording, championship standings computation, penalty adjudication, and
+      financial/licensing workflows remain pending formal ratification; each will be ratified
+      as a dedicated feature increment per Principle VI.
+    - The signup module specification (feature 013 or later) MUST enumerate all new channel
+      categories introduced and register them formally per Principle VII.
+
 [2026-03-06 — v1.2.0 → v2.0.0: Formal scope expansion — driver profiles, teams, season management]
   Version change    : 1.2.0 → 2.0.0
   Bump rationale    : MAJOR — Principle VI backward-incompatibly redefined. The prior scope
@@ -339,44 +380,61 @@ alterations.
 
 ### VI. Incremental Scope Expansion
 
-The bot's scope expands incrementally, one ratified feature at a time. The following domains
-are formally in-scope as of this version:
+The bot is on a deliberate, incremental path toward encompassing the full business rules of
+an F1 game league. Scope expands one formally ratified feature at a time. The following
+domains are formally in-scope as of this version:
 
-1. **Weather generation**: the three-phase pipeline (Principle IV) remains the core function.
+1. **Weather generation**: the three-phase pipeline (Principle IV) remains the core function,
+   delivered as an optional module (Principle X).
 2. **Season and division lifecycle**: setup, activation, completion, cancellation, round
    scheduling, and amendments.
 3. **Driver profile management**: signup workflow, state machine enforcement, Discord User ID
    reassignment, and historical participation tracking.
 4. **Team management**: configurable team definitions per division, seat assignment, and
    the Reserve team ruleset.
+5. **Modular feature architecture**: per-server enablement and disablement of optional
+   capability modules (Principle X).
 
-The following domains remain explicitly **out of scope** until separately ratified:
+The following domains are **planned future scope** — each will be formally ratified as an
+independent feature increment before any implementation begins:
 
-- Race results recording and raw score entry.
-- Driver championship standings computation.
-- Penalty and protest adjudication.
+- **Signup wizard and flow**: full multi-step driver onboarding, admin approval, and
+  placement into divisions and teams.
+- **Driver assignment and placement**: assign/unassign drivers to division-team seats;
+  driver sacking flow.
+- **Race results recording** and raw score entry per round.
+- **Driver championship standings** computation and display.
+- **Penalty and protest adjudication**.
 - Financial or licensing workflows.
 
 Every proposed new command or data concern MUST be evaluated against the current scope
-boundary before implementation begins. Features that do not fall within a ratified domain
-MUST be rejected or deferred via the governance process below.
+boundary before implementation begins. Features not falling within a ratified domain MUST
+be rejected or deferred via the governance process below.
 
-The current output format is text-only. Image-based output is a known planned evolution and
-MUST be designed as an additive change that does not break existing text output paths.
+The current output format is text-only. Image-based output is a known planned evolution
+(required by the signup time-proof feature) and MUST be designed as an additive change
+that does not break existing text output paths.
 
-**Rationale**: Controlled, documented scope expansions allow the bot to grow toward full
-league management without sacrificing reliability or auditability. Each expansion is gated
-behind a formal ratification to prevent unplanned feature creep.
+**Rationale**: A controlled, documented expansion path allows the bot to grow toward full
+league management without sacrificing reliability or auditability. Each increment is gated
+behind formal ratification to prevent unplanned feature creep.
 
 ### VII. Output Channel Discipline
 
-The bot MUST post messages to exactly two categories of channel, and no others:
+The bot MUST post messages to exactly the following categories of channel, and no others
+unless explicitly permitted by an active module (see below):
 
 1. **Per-division weather forecast channel** (one per division, configured at season setup):
    receives only Phase 1, Phase 2, Phase 3 public weather messages, and amendment
    invalidation notices for that division.
 2. **Calculation log channel** (one per server, configured at bot setup): receives all phase
    computation logs, configuration mutation confirmations, and audit trail entries.
+
+**Module-introduced channels**: Optional modules (Principle X) MAY register additional
+channel categories (e.g., a general signup channel, per-driver signup channels). Each such
+category MUST be explicitly documented in the module's feature specification, configured
+via a dedicated module-setup command, and governed by the same discipline as primary
+channels — no unregistered posting, no cross-channel noise.
 
 The bot MUST NOT post to any other channel, including the interaction channel where commands
 are issued. Unsolicited messages in unregistered channels are not permitted.
@@ -437,6 +495,57 @@ point:
 **Rationale**: Structural invariants on teams and tiers prevent silent misconfiguration that
 would compromise competitive fairness — a division with a gap in its tier sequence or a
 missing Reserve team would produce ambiguous or incorrect league operations.
+
+### X. Modular Feature Architecture
+
+The bot is partitioned into foundational and optional modules. Module state MUST be persisted
+per server and MUST survive bot restarts.
+
+**Foundational modules** (always active, cannot be disabled):
+- Division and round management
+- Team management
+- Driver profile management
+- Season lifecycle management
+
+**Optional modules** (disabled by default; enabled explicitly per server by a server
+administrator via a dedicated `/module enable <name>` command — or its equivalent
+structured subcommand):
+- **Weather generation module**: arms the three-phase scheduler, registers weather channel
+  configs, and processes the forecast pipeline (Principle IV).
+- **Signup module**: manages the signup wizard flow, the general signup channel, per-driver
+  signup channels, signup configuration (nationality toggle, time-type, time-image, time
+  slots), and the driver onboarding state machine.
+- Additional modules as ratified under Principle VI.
+
+The following rules MUST hold for every optional module:
+
+1. **Default-off**: A freshly configured server MUST have all optional modules disabled until
+   explicitly enabled.
+2. **Enable atomicity**: Enabling a module MUST atomically register all required configuration
+   (channels, roles, settings) and create any associated scheduled jobs. If any step fails,
+   the enable operation MUST be rolled back and no partial state left.
+3. **Disable atomicity**: Disabling a module MUST atomically cancel all scheduled jobs
+   associated with that module, delete or archive its channel/role configuration, and post
+   a human-readable notice to the log channel. Historical data generated by the module
+   (phase results, audit entries, signup records) MUST be retained; only live/scheduled
+   artifacts are removed.
+4. **Scheduling guard**: Scheduled jobs (e.g., weather phase timers) MUST only be created or
+   re-armed when the relevant module is enabled. On bot restart, the bot MUST check module
+   state before re-arming any job.
+5. **Gate enforcement**: Any command or system action that belongs to an optional module MUST
+   check the module-enabled flag before executing and return a clear, actionable error to
+   the user if the module is disabled.
+6. **Module configuration isolation**: Module-specific configuration is stored separately
+   from core server configuration (Principle I). Disabling a module clears module config;
+   re-enabling starts fresh unless a `--preserve-config` flag is explicitly supported and
+   documented.
+
+**Rationale**: The bot's growth toward full league management requires a clean separation
+between always-on infrastructure (divisions, drivers, teams) and capability modules that
+server administrators opt into. Mandatory modules establish the data model that all other
+modules build on; optional modules add functionality only when the server is ready for it.
+The default-off policy prevents accidental activation of unintended features and keeps the
+initial setup experience simple.
 
 ## Bot Behavior Standards
 
@@ -560,9 +669,9 @@ Amendments require:
 - **MINOR**: Addition of a new principle, section, or materially expanded guidance.
 - **PATCH**: Clarifications, wording improvements, or non-semantic refinements.
 
-All pull requests MUST include a Constitution Check confirming compliance with Principles I–IX
+All pull requests MUST include a Constitution Check confirming compliance with Principles I–X
 before merge. Any deliberate violation of a principle MUST be documented in the plan's
 Complexity Tracking table with a justification for why the simpler compliant path is
 insufficient.
 
-**Version**: 2.0.0 | **Ratified**: 2026-03-03 | **Last Amended**: 2026-03-06
+**Version**: 2.1.0 | **Ratified**: 2026-03-03 | **Last Amended**: 2026-03-07
