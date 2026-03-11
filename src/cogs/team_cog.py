@@ -11,6 +11,8 @@ from utils.channel_guard import channel_guard, admin_only
 
 log = logging.getLogger(__name__)
 
+_MAX_MSG_LEN = 1900  # leave headroom below Discord's 2000 char limit
+
 
 class TeamCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -24,51 +26,132 @@ class TeamCog(commands.Cog):
     )
 
     # ------------------------------------------------------------------
-    # /team default  (sub-group)
+    # /team add  (FR-001, FR-002, FR-003)
     # ------------------------------------------------------------------
 
-    default_group = app_commands.Group(
-        name="default",
-        description="Manage server-level default team list",
-        parent=team,
-        guild_only=True,
-    )
-
-    @default_group.command(
+    @team.command(
         name="add",
-        description="Add a new team to the server default list.",
+        description="Add a team to the server list. Also applies to the current SETUP season if one is active.",
     )
     @app_commands.describe(
         name="Name of the new team (max 50 chars).",
-        seats="Number of seats (default 2, must be ≥ 1).",
+        role="Discord role to associate with this team (optional).",
     )
     @channel_guard
     @admin_only
-    async def default_add(
+    async def team_add(
         self,
         interaction: discord.Interaction,
         name: str,
-        seats: int = 2,
+        role: discord.Role | None = None,
     ) -> None:
-        if seats < 1:
-            await interaction.response.send_message(
-                "⛔ Seat count must be at least 1.", ephemeral=True
-            )
-            return
         try:
             await self.bot.team_service.add_default_team(  # type: ignore[attr-defined]
-                interaction.guild_id, name, seats
+                interaction.guild_id, name
             )
         except ValueError as exc:
             await interaction.response.send_message(f"⛔ {exc}", ephemeral=True)
             return
-        await interaction.response.send_message(
-            f'✅ Default team "{name}" added ({seats} seats).', ephemeral=True
+
+        if role is not None:
+            await self.bot.placement_service.set_team_role_config(  # type: ignore[attr-defined]
+                interaction.guild_id, name, role.id,
+                actor_id=interaction.user.id, actor_name=str(interaction.user),
+            )
+
+        setup_season = await self.bot.season_service.get_setup_season(  # type: ignore[attr-defined]
+            interaction.guild_id
+        )
+        if setup_season is not None:
+            try:
+                div_count = await self.bot.team_service.season_team_add(  # type: ignore[attr-defined]
+                    interaction.guild_id, setup_season.id, name, 2
+                )
+            except ValueError as exc:
+                await interaction.response.send_message(f"⛔ {exc}", ephemeral=True)
+                return
+
+        if setup_season is not None and role is not None:
+            msg = (
+                f'✅ Team "{name}" added with role {role.mention} and inserted into all '
+                f"{div_count} division(s) of Season {setup_season.season_number}."
+            )
+        elif setup_season is not None:
+            msg = (
+                f'✅ Team "{name}" added and inserted into all '
+                f"{div_count} division(s) of Season {setup_season.season_number}."
+            )
+        elif role is not None:
+            msg = f'✅ Team "{name}" added with role {role.mention}.'
+        else:
+            msg = f'✅ Team "{name}" added.'
+
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /team remove  (FR-004, FR-005, FR-006)
+    # ------------------------------------------------------------------
+
+    @team.command(
+        name="remove",
+        description="Remove a team from the server list. Also applies to the current SETUP season if one is active.",
+    )
+    @app_commands.describe(name="Exact team name to remove.")
+    @channel_guard
+    @admin_only
+    async def team_remove(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+    ) -> None:
+        setup_season = await self.bot.season_service.get_setup_season(  # type: ignore[attr-defined]
+            interaction.guild_id
         )
 
-    @default_group.command(
+        try:
+            await self.bot.team_service.remove_default_team(  # type: ignore[attr-defined]
+                interaction.guild_id, name
+            )
+        except ValueError as exc:
+            await interaction.response.send_message(f"⛔ {exc}", ephemeral=True)
+            return
+
+        await self.bot.placement_service.delete_team_role_config(  # type: ignore[attr-defined]
+            interaction.guild_id, name,
+            actor_id=interaction.user.id, actor_name=str(interaction.user),
+        )
+
+        if setup_season is not None:
+            season_names = await self.bot.team_service.get_setup_season_team_names(  # type: ignore[attr-defined]
+                interaction.guild_id, setup_season.id
+            )
+            team_in_season = name in season_names
+            div_count = await self.bot.team_service.season_team_remove(  # type: ignore[attr-defined]
+                interaction.guild_id, setup_season.id, name
+            )
+
+        if setup_season is not None and team_in_season:
+            msg = (
+                f'✅ Team "{name}" removed from the server list and all '
+                f"{div_count} division(s) of Season {setup_season.season_number}."
+            )
+        elif setup_season is not None:
+            msg = (
+                f'✅ Team "{name}" removed from the server list. '
+                f"(Not present in Season {setup_season.season_number} divisions.)"
+            )
+        else:
+            msg = f'✅ Team "{name}" removed from the server list.'
+
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /team rename  (FR-007, FR-008, FR-009)
+    # ------------------------------------------------------------------
+
+    @team.command(
         name="rename",
-        description="Rename an existing default team.",
+        description="Rename a team in the server list. Also applies to the current SETUP season if one is active.",
     )
     @app_commands.describe(
         current_name="Exact current name of the team.",
@@ -76,12 +159,16 @@ class TeamCog(commands.Cog):
     )
     @channel_guard
     @admin_only
-    async def default_rename(
+    async def team_rename(
         self,
         interaction: discord.Interaction,
         current_name: str,
         new_name: str,
     ) -> None:
+        setup_season = await self.bot.season_service.get_setup_season(  # type: ignore[attr-defined]
+            interaction.guild_id
+        )
+
         try:
             await self.bot.team_service.rename_default_team(  # type: ignore[attr-defined]
                 interaction.guild_id, current_name, new_name
@@ -89,258 +176,102 @@ class TeamCog(commands.Cog):
         except ValueError as exc:
             await interaction.response.send_message(f"⛔ {exc}", ephemeral=True)
             return
-        await interaction.response.send_message(
-            f'✅ Default team "{current_name}" renamed to "{new_name}".', ephemeral=True
-        )
 
-    @default_group.command(
-        name="remove",
-        description="Remove a team from the server default list.",
-    )
-    @app_commands.describe(name="Exact name of the team to remove.")
-    @channel_guard
-    @admin_only
-    async def default_remove(
-        self,
-        interaction: discord.Interaction,
-        name: str,
-    ) -> None:
-        # Confirm / cancel prompt
-        view = _ConfirmView()
-        await interaction.response.send_message(
-            f'⚠️ Remove default team "{name}"?\n'
-            "This will not affect team instances already created in existing divisions.",
-            view=view,
-            ephemeral=True,
-        )
-        await view.wait()
-        if not view.confirmed:
-            await interaction.edit_original_response(
-                content="❌ Cancelled.", view=None
-            )
-            return
-        try:
-            await self.bot.team_service.remove_default_team(  # type: ignore[attr-defined]
-                interaction.guild_id, name
-            )
-        except ValueError as exc:
-            await interaction.edit_original_response(content=f"⛔ {exc}", view=None)
-            return
-        await interaction.edit_original_response(
-            content=f'✅ Default team "{name}" removed from server defaults.', view=None
-        )
-
-    # ------------------------------------------------------------------
-    # /team role  (sub-group)
-    # ------------------------------------------------------------------
-
-    role_group = app_commands.Group(
-        name="role",
-        description="Map team names to Discord roles for placement.",
-        parent=team,
-        guild_only=True,
-    )
-
-    @role_group.command(
-        name="set",
-        description="Map a team name to a Discord role (granted/revoked on placement).",
-    )
-    @app_commands.describe(
-        team_name="Exact team name as it appears in the season.",
-        role="The Discord role to assign when a driver is placed into this team.",
-    )
-    @channel_guard
-    @admin_only
-    async def role_set(
-        self,
-        interaction: discord.Interaction,
-        team_name: str,
-        role: discord.Role,
-    ) -> None:
-        await interaction.response.defer(ephemeral=True)
-        await self.bot.placement_service.set_team_role_config(  # type: ignore[attr-defined]
-            interaction.guild_id, team_name, role.id,
+        await self.bot.placement_service.rename_team_role_config(  # type: ignore[attr-defined]
+            interaction.guild_id, current_name, new_name,
             actor_id=interaction.user.id, actor_name=str(interaction.user),
         )
-        await interaction.followup.send(
-            f'✅ Team **{team_name}** mapped to role {role.mention}.', ephemeral=True
-        )
 
-    @role_group.command(
+        if setup_season is not None:
+            div_count = await self.bot.team_service.season_team_rename(  # type: ignore[attr-defined]
+                interaction.guild_id, setup_season.id, current_name, new_name
+            )
+            msg = (
+                f'✅ Team "{current_name}" renamed to "{new_name}" across all '
+                f"{div_count} division(s) of Season {setup_season.season_number}."
+            )
+        else:
+            msg = f'✅ Team "{current_name}" renamed to "{new_name}".'
+
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # /team list  (FR-010, FR-011)
+    # ------------------------------------------------------------------
+
+    @team.command(
         name="list",
-        description="List all team → role mappings for this server.",
+        description="List all teams in the server list with their mapped roles.",
     )
     @channel_guard
     @admin_only
-    async def role_list(
+    async def team_list(
         self,
         interaction: discord.Interaction,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        configs = await self.bot.placement_service.get_all_team_role_configs(  # type: ignore[attr-defined]
+
+        server_teams = await self.bot.team_service.get_teams_with_roles(  # type: ignore[attr-defined]
             interaction.guild_id
         )
-        if not configs:
+        non_reserve = [t for t in server_teams if not t["is_reserve"]]
+
+        if not non_reserve:
             await interaction.followup.send(
-                "No team role mappings configured. Use `/team role set` to add one.",
-                ephemeral=True,
+                "No teams configured. Use `/team add` to create one.", ephemeral=True
             )
             return
-        lines = [f"**{c.team_name}** → <@&{c.role_id}>" for c in configs]
-        await interaction.followup.send("\n".join(lines), ephemeral=True)
 
-    # ------------------------------------------------------------------
-    # /team season  (sub-group)
-    # ------------------------------------------------------------------
+        def _fmt_team(t: dict) -> str:
+            role_part = f"<@&{t['role_id']}>" if t["role_id"] else "no role"
+            return f"  {t['name']} → {role_part}"
 
-    season_group = app_commands.Group(
-        name="season",
-        description="Manage team configuration for the current season",
-        parent=team,
-        guild_only=True,
-    )
+        server_lines = [_fmt_team(t) for t in non_reserve]
+        reserve = next((t for t in server_teams if t["is_reserve"]), None)
+        if reserve:
+            server_lines.append(_fmt_team(reserve))
 
-    @season_group.command(
-        name="add",
-        description="Add a team to all divisions of the current SETUP season.",
-    )
-    @app_commands.describe(
-        name="Name of the team to add.",
-        seats="Number of seats (default 2).",
-    )
-    @channel_guard
-    @admin_only
-    async def season_add(
-        self,
-        interaction: discord.Interaction,
-        name: str,
-        seats: int = 2,
-    ) -> None:
-        season = await self.bot.season_service.get_setup_season(  # type: ignore[attr-defined]
+        setup_season = await self.bot.season_service.get_setup_season(  # type: ignore[attr-defined]
             interaction.guild_id
         )
-        if season is None:
-            await interaction.response.send_message(
-                "⛔ No season is currently in setup. "
-                "Team configuration can only be changed during season setup.",
-                ephemeral=True,
-            )
-            return
-        try:
-            count = await self.bot.team_service.season_team_add(  # type: ignore[attr-defined]
-                interaction.guild_id, season.id, name, seats
-            )
-        except ValueError as exc:
-            await interaction.response.send_message(f"⛔ {exc}", ephemeral=True)
-            return
-        await interaction.response.send_message(
-            f'✅ Team "{name}" added to all {count} division(s) of Season {season.season_number}.',
-            ephemeral=True,
-        )
 
-    @season_group.command(
-        name="rename",
-        description="Rename a team across all divisions of the current SETUP season.",
-    )
-    @app_commands.describe(
-        current_name="Exact current name (same across all divisions).",
-        new_name="New name.",
-    )
-    @channel_guard
-    @admin_only
-    async def season_rename(
-        self,
-        interaction: discord.Interaction,
-        current_name: str,
-        new_name: str,
-    ) -> None:
-        season = await self.bot.season_service.get_setup_season(  # type: ignore[attr-defined]
-            interaction.guild_id
-        )
-        if season is None:
-            await interaction.response.send_message(
-                "⛔ No season is currently in setup. "
-                "Team configuration can only be changed during season setup.",
-                ephemeral=True,
-            )
-            return
-        try:
-            count = await self.bot.team_service.season_team_rename(  # type: ignore[attr-defined]
-                interaction.guild_id, season.id, current_name, new_name
-            )
-        except ValueError as exc:
-            await interaction.response.send_message(f"⛔ {exc}", ephemeral=True)
-            return
-        await interaction.response.send_message(
-            f'✅ Team "{current_name}" renamed to "{new_name}" across all {count} division(s).',
-            ephemeral=True,
-        )
-
-    @season_group.command(
-        name="remove",
-        description="Remove a team from all divisions of the current SETUP season.",
-    )
-    @app_commands.describe(name="Exact team name.")
-    @channel_guard
-    @admin_only
-    async def season_remove(
-        self,
-        interaction: discord.Interaction,
-        name: str,
-    ) -> None:
-        season = await self.bot.season_service.get_setup_season(  # type: ignore[attr-defined]
-            interaction.guild_id
-        )
-        if season is None:
-            await interaction.response.send_message(
-                "⛔ No season is currently in setup. "
-                "Team configuration can only be changed during season setup.",
-                ephemeral=True,
-            )
+        if setup_season is None:
+            header = "**Server team list:**"
+            content = header + "\n" + "\n".join(server_lines)
+            await _send_long(interaction, content)
             return
 
-        view = _ConfirmView()
-        await interaction.response.send_message(
-            f'⚠️ Remove team "{name}" from all division(s) of Season {season.season_number}?\n'
-            "Any seat assignments for this team will also be removed.",
-            view=view,
-            ephemeral=True,
+        season_names = await self.bot.team_service.get_setup_season_team_names(  # type: ignore[attr-defined]
+            interaction.guild_id, setup_season.id
         )
-        await view.wait()
-        if not view.confirmed:
-            await interaction.edit_original_response(content="❌ Cancelled.", view=None)
-            return
+        server_names = {t["name"] for t in non_reserve}
 
-        try:
-            count = await self.bot.team_service.season_team_remove(  # type: ignore[attr-defined]
-                interaction.guild_id, season.id, name
+        if server_names == season_names:
+            header = f"**Server team list (Season {setup_season.season_number} will use this list):**"
+            content = header + "\n" + "\n".join(server_lines)
+        else:
+            season_list = ", ".join(sorted(season_names)) if season_names else "*(empty)*"
+            content = (
+                f"⚠️ Season {setup_season.season_number} divisions differ from the server list.\n\n"
+                f"**Server list:**\n" + "\n".join(server_lines) +
+                f"\n\n**Season {setup_season.season_number} effective teams:**\n  {season_list}"
             )
-        except ValueError as exc:
-            await interaction.edit_original_response(content=f"⛔ {exc}", view=None)
-            return
-        await interaction.edit_original_response(
-            content=f'✅ Team "{name}" removed from all {count} division(s) of Season {season.season_number}.',
-            view=None,
-        )
+
+        await _send_long(interaction, content)
 
 
 # ---------------------------------------------------------------------------
-# Shared confirm/cancel UI view
+# Helpers
 # ---------------------------------------------------------------------------
 
-class _ConfirmView(discord.ui.View):
-    def __init__(self) -> None:
-        super().__init__(timeout=60)
-        self.confirmed: bool = False
-
-    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        self.confirmed = True
-        self.stop()
-        await interaction.response.defer()
-
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        self.confirmed = False
-        self.stop()
-        await interaction.response.defer()
+async def _send_long(interaction: discord.Interaction, text: str) -> None:
+    """Send potentially-long text, splitting into followup chunks if needed."""
+    if len(text) <= _MAX_MSG_LEN:
+        await interaction.followup.send(text, ephemeral=True)
+        return
+    chunks = []
+    while text:
+        chunks.append(text[:_MAX_MSG_LEN])
+        text = text[_MAX_MSG_LEN:]
+    for chunk in chunks:
+        await interaction.followup.send(chunk, ephemeral=True)

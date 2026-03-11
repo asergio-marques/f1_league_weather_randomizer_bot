@@ -45,6 +45,36 @@ On first run the bot will create `bot.db` and apply all schema migrations automa
 
 ---
 
+## Required Permissions
+
+When inviting the bot, grant it the following OAuth2 bot permissions. All are used in normal operation.
+
+### Bot Permissions (OAuth2 scopes: `bot`, `applications.commands`)
+
+| Permission | Why it's needed |
+|---|---|
+| **View Channels** | Required before any channel operation — the bot must be able to see forecast channels, log channels, and signup wizard channels before it can read or write them |
+| **Send Messages** | Posts weather forecasts to division channels, signup wizard messages to private channels, and audit logs to the log channel |
+| **Send Messages in Threads** | Required if any configured channels are threads |
+| **Embed Links** | Posts the signup module info embed (the button drivers click to start a signup) |
+| **Manage Channels** | Creates private signup wizard channels; applies and removes channel permission overwrites for the signup module and per-driver wizard channels |
+| **Manage Messages** | Deletes the old forecast message when a newer phase supersedes it (`forecast_cleanup_service`) |
+| **Manage Roles** | Grants the signed-up role on signup approval; grants/revokes division and team roles on driver placement, unassignment, and sacking |
+| **Mention @everyone, @here, and All Roles** | Pings the division role in weather forecast messages (phase 1–3) and round amendment notices. Required when division roles are not set to "Allow anyone to @mention this role" (the typical default for private league roles) |
+
+### Privileged Gateway Intents
+
+These must be enabled in the **Discord Developer Portal → Bot → Privileged Gateway Intents** for the bot to function:
+
+| Intent | Why it's needed |
+|---|---|
+| **Server Members Intent** | Resolves `guild.get_member()` / `fetch_member()` for role management; handles `on_member_remove` to auto-withdraw in-progress signups |
+| **Message Content Intent** | Reads message content in the signup wizard's `on_message` handler (drivers submit answers by typing in their private channel) |
+
+> **Note:** Without the Server Members Intent the bot cannot grant or revoke roles. Without the Message Content Intent the signup wizard will not receive driver responses.
+
+---
+
 ## First-time Server Setup
 
 After inviting the bot, a **server administrator** (Manage Server permission) must run:
@@ -299,7 +329,7 @@ Transfers an existing driver profile from one Discord account to another. Provid
 #### `/driver assign` — Assign a driver to a team and division
 *Access: Trusted admin*
 
-Places an Unassigned driver into a specific team seat within a division for the active season. Also grants the division role and the team role (if configured via `/team role set`).
+Places an Unassigned driver into a specific team seat within a division for the active season. Also grants the division role and the team role (if configured via `/team add`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -330,66 +360,39 @@ Revokes all placement roles, removes all season assignments, and transitions the
 
 ### Team Commands
 
-#### `/team default add` — Add a team to the server default list
+#### `/team add` — Add a team to the server list
 *Access: Trusted admin*
+
+Adds the team to the server's default team list. If a Discord role is provided it is saved as the team's role mapping (granted/revoked on driver placement). If a SETUP season is active the team is also seeded into every division with 2 seats.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `name` | String | ✅ | Name of the new team (max 50 chars) |
-| `seats` | Integer | — | Number of seats (default `2`, must be ≥ 1) |
+| `role` | Role | — | Discord role to grant drivers placed into this team |
 
-#### `/team default rename` — Rename a default team
+#### `/team remove` — Remove a team from the server list
 *Access: Trusted admin*
+
+Removes the team from the server's default list and clears its role mapping. If a SETUP season is active the team is also removed from every division in that season.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | String | ✅ | Exact name of the team to remove |
+
+#### `/team rename` — Rename a team
+*Access: Trusted admin*
+
+Renames the team in the server's default list and updates its role mapping key. If a SETUP season is active the name is also updated across every division in that season.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `current_name` | String | ✅ | Exact current name of the team |
 | `new_name` | String | ✅ | Replacement name (max 50 chars) |
 
-#### `/team default remove` — Remove a team from the default list
+#### `/team list` — List all teams and their role mappings
 *Access: Trusted admin*
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | String | ✅ | Exact name of the team to remove |
-
-#### `/team role set` — Map a team name to a Discord role
-*Access: Trusted admin*
-
-Configures which Discord role is granted/revoked when a driver is placed into or removed from this team. Mapping persists across seasons.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `team_name` | String | ✅ | Exact team name as it appears in the season |
-| `role` | Role | ✅ | The Discord role to assign on placement into this team |
-
-#### `/team role list` — List all team → role mappings
-*Access: Trusted admin*
-
-No parameters. Displays all configured team–role mappings for this server.
-
-#### `/team season add` — Add a team to all divisions of the current SETUP season
-*Access: Trusted admin · Setup only*
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | String | ✅ | Name of the team to add |
-| `seats` | Integer | — | Number of seats (default `2`) |
-
-#### `/team season rename` — Rename a team across all divisions of the current SETUP season
-*Access: Trusted admin · Setup only*
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `current_name` | String | ✅ | Exact current name (same across all divisions) |
-| `new_name` | String | ✅ | New name |
-
-#### `/team season remove` — Remove a team from all divisions of the current SETUP season
-*Access: Trusted admin · Setup only*
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | String | ✅ | Exact team name |
+Displays all teams on the server's default list alongside their configured Discord roles. If a SETUP season is active and its team list differs from the server default, the divergence is shown with a warning.
 
 ---
 
