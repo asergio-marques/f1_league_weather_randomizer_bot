@@ -293,6 +293,58 @@ class TeamService:
         return len(division_ids)
 
     # ------------------------------------------------------------------
+    # Read helpers for /team list (016-team-cmd-qol)
+    # ------------------------------------------------------------------
+
+    async def get_teams_with_roles(self, server_id: int) -> list[dict]:
+        """Return all server teams joined with their optional role mapping.
+
+        Each entry: {name, max_seats, is_reserve, role_id} where role_id is int | None.
+        Ordered: non-reserve alphabetically first, Reserve last.
+        """
+        async with get_connection(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT dt.name, dt.max_seats, dt.is_reserve, trc.role_id
+                FROM default_teams dt
+                LEFT JOIN team_role_configs trc
+                       ON trc.server_id = dt.server_id
+                      AND trc.team_name = dt.name
+                WHERE dt.server_id = ?
+                ORDER BY dt.is_reserve ASC, dt.name ASC
+                """,
+                (server_id,),
+            )
+            rows = await cursor.fetchall()
+        return [
+            {
+                "name": r["name"],
+                "max_seats": r["max_seats"],
+                "is_reserve": bool(r["is_reserve"]),
+                "role_id": r["role_id"],
+            }
+            for r in rows
+        ]
+
+    async def get_setup_season_team_names(
+        self, server_id: int, season_id: int
+    ) -> set[str]:
+        """Return unique non-reserve team names across all divisions of a SETUP season."""
+        async with get_connection(self._db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT DISTINCT ti.name
+                FROM team_instances ti
+                JOIN divisions d ON d.id = ti.division_id
+                JOIN seasons s   ON s.id = d.season_id
+                WHERE s.server_id = ? AND s.id = ? AND ti.is_reserve = 0
+                """,
+                (server_id, season_id),
+            )
+            rows = await cursor.fetchall()
+        return {r["name"] for r in rows}
+
+    # ------------------------------------------------------------------
     # Read helpers for review output (US6)
     # ------------------------------------------------------------------
 

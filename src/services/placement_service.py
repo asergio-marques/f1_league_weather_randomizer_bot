@@ -167,6 +167,72 @@ class PlacementService:
             for r in rows
         ]
 
+    async def delete_team_role_config(
+        self, server_id: int, team_name: str,
+        actor_id: int = 0, actor_name: str = "system",
+    ) -> None:
+        """Delete the team -> role mapping if present; silent no-op if absent."""
+        async with get_connection(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT id, role_id FROM team_role_configs "
+                "WHERE server_id = ? AND team_name = ?",
+                (server_id, team_name),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return
+            await db.execute(
+                "DELETE FROM team_role_configs WHERE id = ?", (row["id"],)
+            )
+            now = datetime.now(timezone.utc).isoformat()
+            await db.execute(
+                "INSERT INTO audit_entries "
+                "(server_id, actor_id, actor_name, division_id, change_type, "
+                "old_value, new_value, timestamp) "
+                "VALUES (?, ?, ?, NULL, 'TEAM_ROLE_CONFIG', ?, ?, ?)",
+                (
+                    server_id, actor_id, actor_name,
+                    json.dumps({"team": team_name, "role_id": row["role_id"]}),
+                    json.dumps({"team": team_name, "role_id": None}),
+                    now,
+                ),
+            )
+            await db.commit()
+
+    async def rename_team_role_config(
+        self, server_id: int, old_name: str, new_name: str,
+        actor_id: int = 0, actor_name: str = "system",
+    ) -> None:
+        """Rename the team_name key in the role mapping; silent no-op if absent."""
+        async with get_connection(self._db_path) as db:
+            cursor = await db.execute(
+                "SELECT id, role_id FROM team_role_configs "
+                "WHERE server_id = ? AND team_name = ?",
+                (server_id, old_name),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return
+            await db.execute(
+                "UPDATE team_role_configs "
+                "SET team_name = ?, updated_at = datetime('now') WHERE id = ?",
+                (new_name, row["id"]),
+            )
+            now = datetime.now(timezone.utc).isoformat()
+            await db.execute(
+                "INSERT INTO audit_entries "
+                "(server_id, actor_id, actor_name, division_id, change_type, "
+                "old_value, new_value, timestamp) "
+                "VALUES (?, ?, ?, NULL, 'TEAM_ROLE_CONFIG', ?, ?, ?)",
+                (
+                    server_id, actor_id, actor_name,
+                    json.dumps({"team": old_name, "role_id": row["role_id"]}),
+                    json.dumps({"team": new_name, "role_id": row["role_id"]}),
+                    now,
+                ),
+            )
+            await db.commit()
+
     # ------------------------------------------------------------------
     # total_lap_ms computation (called at approval)
     # ------------------------------------------------------------------
