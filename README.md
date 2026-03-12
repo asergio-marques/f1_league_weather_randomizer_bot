@@ -402,6 +402,7 @@ Displays the placed drivers for each team seat in the active season. If a divisi
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `division` | String | — | Division name or tier number; omit to show all divisions |
+| `public` | Boolean | — | Post the lineup visibly in the channel; defaults to ephemeral (only visible to you) |
 
 #### `/team reserve-role` — Set or clear the Reserve team's Discord role
 *Access: Trusted admin*

@@ -269,6 +269,7 @@ class TeamCog(commands.Cog):
     )
     @app_commands.describe(
         division="Division name or tier number. Omit to show all divisions.",
+        public="Post the lineup visibly in the channel (default: only visible to you).",
     )
     @channel_guard
     @admin_only
@@ -276,14 +277,15 @@ class TeamCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         division: str | None = None,
+        public: bool = False,
     ) -> None:
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=not public)
 
         season = await self.bot.season_service.get_active_season(  # type: ignore[attr-defined]
             interaction.guild_id
         )
         if season is None:
-            await interaction.followup.send("⛔ No active season.")
+            await interaction.followup.send("⛔ No active season.", ephemeral=True)
             return
 
         all_divisions = await self.bot.season_service.get_divisions(season.id)  # type: ignore[attr-defined]
@@ -294,13 +296,13 @@ class TeamCog(commands.Cog):
                 season.id, division
             )
             if result is None:
-                await interaction.followup.send(f"⛔ Division `{division}` not found.")
+                await interaction.followup.send(f"⛔ Division `{division}` not found.", ephemeral=True)
                 return
             div_id, _ = result
             all_divisions = [d for d in all_divisions if d.id == div_id]
 
         if not all_divisions:
-            await interaction.followup.send("No divisions found.")
+            await interaction.followup.send("No divisions found.", ephemeral=True)
             return
 
         lines: list[str] = []
@@ -323,7 +325,7 @@ class TeamCog(commands.Cog):
                         lines.append(f"    Seat {seat_num}: {driver_str}")
             lines.append("")
 
-        await _send_long(interaction, "\n".join(lines).rstrip(), ephemeral=False)
+        await _send_long(interaction, "\n".join(lines).rstrip(), ephemeral=not public)
 
     # ------------------------------------------------------------------
     # /team reserve-role  — set or clear the role for the Reserve team
